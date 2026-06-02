@@ -1708,17 +1708,40 @@ _PROJECT_ROOT_MARKERS: tuple[str, ...] = ("pyproject.toml", ".git", "CLAUDE.md")
 def _resolve_import_path(link_target: str, base_dir: Path) -> Path:
     """Resolve an import link target to an absolute filesystem path.
 
-    See `_load_import` for the resolution order. Named imports fall back to
-    a path-style resolution if the project root cannot be discovered, so an
-    error is raised at file-open time (with the more useful message) rather
-    than here.
+    Resolution order for named imports (e.g. ``[stdlib](stdlib)``):
+
+    1. ``FML_<NAME>_PATH`` env var (e.g. ``FML_STDLIB_PATH``) — if set, used
+       verbatim. Lets a consumer point the parser at a sibling repo without
+       any code changes — important when the stdlib lives in a separate
+       TowerCrawlerAI/stdlib repo rather than inside the floor's own tree.
+    2. Sibling-directory search: if a directory matching the import name
+       (e.g. ``stdlib``) exists as a sibling of the project root containing
+       an ``index.md``, use that. This is the convention for TowerCrawlerAI's
+       multi-repo layout.
+    3. ``_NAMED_IMPORTS`` map relative to the discovered project root — the
+       legacy monorepo behavior (e.g. ``data/stdlib/index.md``).
+
+    Named imports that exhaust all three fall back to path-style resolution
+    so an error is raised at file-open time with the more useful message.
     """
+    import os
+
     if "/" not in link_target and "." not in link_target:
-        named = _NAMED_IMPORTS.get(link_target)
-        if named is not None:
-            project_root = _find_project_root(base_dir)
-            if project_root is not None:
+        env_key = f"FML_{link_target.upper()}_PATH"
+        env_override = os.environ.get(env_key)
+        if env_override:
+            return Path(env_override).resolve()
+
+        project_root = _find_project_root(base_dir)
+        if project_root is not None:
+            sibling = project_root.parent / link_target / "index.md"
+            if sibling.exists():
+                return sibling.resolve()
+
+            named = _NAMED_IMPORTS.get(link_target)
+            if named is not None:
                 return (project_root / named).resolve()
+
     return (base_dir / link_target).resolve()
 
 
