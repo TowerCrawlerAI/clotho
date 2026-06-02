@@ -1,0 +1,69 @@
+# fml-parser
+
+The TowerCrawlerAI FML → LFR emitter. Deterministic Python parser that reads Floor Markdown Language (`.md`) files, walks the import graph, applies kind-chain inheritance + tree-shake, and emits Luau LFR (`.lua`) that the `engine-core` binary consumes.
+
+## Build / install
+
+```bash
+pip install -e .
+```
+
+Dependencies (declared in `pyproject.toml`):
+- `markdown-it-py` — the literate Markdown parser
+- `pydantic` — entity model validation
+
+## Use
+
+```python
+from fml_parser.parser import parse_file
+from fml_parser.emit_lua import emit_lua
+
+floor = parse_file("path/to/index.md")
+lua_source = emit_lua(floor)
+open("output.lua", "w").write(lua_source)
+```
+
+Or via CLI (if/when a CLI is added — currently this is a library only):
+```bash
+python -m fml_parser path/to/index.md -o output.lua
+```
+
+## Architecture
+
+- `parser.py` — top-level entry. Walks the import graph (`[stdlib]`-style Markdown links), parses each file exactly once, returns a `Floor` model.
+- `emit_lua.py` — lowers the parsed `Floor` to Luau. Applies kind-chain inheritance at lower time. Tree-shakes unreferenced catalog entries.
+- `models.py` — Pydantic models for `Floor`, `Entity`, `SubEntity`, `Trigger`, properties, etc.
+- `dice_value.py` — six-form FML property value dispatch (PR-equivalent of the dice-as-first-class work).
+- `emitter.py` — emission helpers (string formatting, Luau-safe identifiers, etc.).
+- `errors.py` — typed parser errors with file/line context.
+- `lua_reader/` — round-trip reader (LFR → models, for `tower unlower`).
+- `tree_shake.py` — BFS reachability pass; prunes unreachable catalog entries.
+
+## Companion repos
+
+Under `TowerCrawlerAI/`:
+- [`engine-core`](../engine-core) — C engine that consumes the LFR this parser emits
+- [`stdlib`](../stdlib) — FML stdlib that gets imported into floors
+- [`sample-dungeon`](../sample-dungeon) — Bone Garden test content
+- [`wiki`](../wiki) — `design/FML.md`, `design/LFR.md`, `design/PARSER.md` for the normative spec
+
+## FML spec
+
+Authoritative: `wiki/design/FML.md`. Key invariants:
+
+- H1 = document title (exactly one per file)
+- H3 = entity declaration
+- H5 = sub-entity
+- H6 = trigger handler (stage + event)
+- H2 / H4 = convention only
+- Property bullets outside blockquotes; prose inside blockquotes
+- Imports are include-once with inline expansion
+- Trigger stage names are `Test`, `Before`, `On`, `After`, `Report`, `InsteadOf`
+
+## Determinism
+
+Same FML input + same import graph → bit-identical LFR. No LLMs in the build path. No randomness. This is load-bearing for skein record/replay further downstream.
+
+## Status
+
+Carried over from the TowerAI monorepo split on 2026-06-02.
