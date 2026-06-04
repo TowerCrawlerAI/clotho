@@ -64,6 +64,26 @@ Authoritative: `wiki/design/FML.md`. Key invariants:
 
 Same FML input + same import graph → bit-identical LFR. No LLMs in the build path. No randomness. This is load-bearing for skein record/replay further downstream.
 
+## Releasing
+
+Before cutting a release tag (`git tag vX.Y.Z && git push --tags`), the
+**Integration Gate** CI job (`integration-gate.yml`) **must be green**.
+
+That workflow (`F3`, closes #4) checks out `TowerCrawlerAI/stdlib` and
+`TowerCrawlerAI/sample-dungeon` and lowers both with the *candidate* parser:
+
+```bash
+# stdlib verb-module
+python -m fml_parser --stdlib-module stdlib/core/index.md -o stdlib.lua
+
+# floor LFR
+python -m fml_parser lower sample-dungeon/index.md -o floor.lua
+```
+
+Both commands must exit 0 and produce a non-empty `.lua` file.  If either
+fails, the gate blocks and the tag **must not** be pushed until the failure
+is fixed and the gate is green again.
+
 ## Status
 
 Carried over from the TowerAI monorepo split on 2026-06-02.

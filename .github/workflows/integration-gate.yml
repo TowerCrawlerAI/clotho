@@ -1,0 +1,71 @@
+name: Integration Gate (F3)
+
+# Pre-release gate: prove the candidate parser cleanly lowers BOTH content repos
+# (stdlib + sample-dungeon).  This job MUST be green before cutting a release tag.
+#
+# Triggers:
+#   - pull_request: runs on every PR so regressions are caught early.
+#   - workflow_dispatch: lets maintainers re-run manually (e.g. after a content-repo
+#     push) before tagging a release.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  integration-gate:
+    name: Lower stdlib + sample-dungeon
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the candidate fml-parser (this repo / PR head).
+      - name: Check out fml-parser
+        uses: actions/checkout@v4
+        with:
+          path: fml-parser
+
+      # 2. Install the candidate parser in editable mode so we exercise the
+      #    exact code under review, not a pinned release.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install candidate fml-parser
+        run: pip install -e fml-parser
+
+      # 3. Check out the content repos at their HEAD.
+      - name: Check out stdlib
+        uses: actions/checkout@v4
+        with:
+          repository: TowerCrawlerAI/stdlib
+          path: stdlib
+
+      - name: Check out sample-dungeon
+        uses: actions/checkout@v4
+        with:
+          repository: TowerCrawlerAI/sample-dungeon
+          path: sample-dungeon
+
+      # 4. Lower stdlib (verb-module path).
+      - name: Lower stdlib/core/index.md → stdlib.lua
+        run: python -m fml_parser --stdlib-module stdlib/core/index.md -o stdlib.lua
+
+      - name: Assert stdlib.lua is non-empty
+        run: |
+          if [ ! -s stdlib.lua ]; then
+            echo "ERROR: stdlib.lua was produced but is empty" >&2
+            exit 1
+          fi
+          echo "stdlib.lua OK ($(wc -l < stdlib.lua) lines)"
+
+      # 5. Lower sample-dungeon (floor LFR path).
+      - name: Lower sample-dungeon/index.md → floor.lua
+        run: python -m fml_parser lower sample-dungeon/index.md -o floor.lua
+
+      - name: Assert floor.lua is non-empty
+        run: |
+          if [ ! -s floor.lua ]; then
+            echo "ERROR: floor.lua was produced but is empty" >&2
+            exit 1
+          fi
+          echo "floor.lua OK ($(wc -l < floor.lua) lines)"
