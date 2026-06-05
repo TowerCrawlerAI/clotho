@@ -88,6 +88,13 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("specify either 'lower <index.md>' or '--stdlib-module <index.md>'")
         return 2  # unreachable; ap.error() calls sys.exit(2)
 
+    # --graph selects the binding-surface (LPG) emitter; it only applies to the
+    # 'lower' floor path. Combining it with --stdlib-module is a usage error
+    # rather than silently ignoring it.
+    if args.graph and mode != "floor":
+        ap.error("--graph applies to 'lower'; it cannot be combined with --stdlib-module")
+        return 2  # unreachable; ap.error() calls sys.exit(2)
+
     source_path = Path(source_str).resolve()
 
     # Read the FML source.

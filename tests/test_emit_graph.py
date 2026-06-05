@@ -209,6 +209,14 @@ def test_builtin_verbs_skipped():
         )
 
 
+def test_put_is_not_a_builtin():
+    """'put' alone is NOT an engine built-in (only 'put-in'/'put_in' is), so a
+    content verb id 'put' must still be emitted. Guards the over-block fix."""
+    floor = make_floor([make_entity("put", "Put", "verb", properties={"noun": "required"})])
+    out = emit_lua_graph(floor)
+    assert 'name = "put"' in out, "'put' must be emittable (not a built-in)"
+
+
 # ─── Test (e): determinism ────────────────────────────────────────────────────
 
 

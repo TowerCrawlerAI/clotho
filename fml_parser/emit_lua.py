@@ -162,8 +162,12 @@ def _verb_stage_key(trigger_name: str) -> str:
 
 # ─── Graph emitter (F6 — binding-surface LFR) ────────────────────────────────
 
-# Built-in verbs that must NOT be re-emitted via define_verb.
-_BUILTIN_VERBS = frozenset(["take", "drop", "put-in", "put_in", "put", "go"])
+# Built-in verbs the engine bootstraps (tg_verb_bootstrap): take, drop, put-in, go.
+# Re-emitting any of these via define_verb fails on the duplicate name, so skip
+# them. The engine names "put-in" with a hyphen, but FML EntityIds are snake_case
+# (^[a-z][a-z0-9_]*$), so a content verb intended as put-in is slugged "put_in" —
+# match that form. ("put" alone is NOT a built-in and must remain emittable.)
+_BUILTIN_VERBS = frozenset(["take", "drop", "put_in", "go"])
 
 # Kinds that are schema metadata, not world instances.
 _SCHEMA_KINDS = frozenset(["kind_definition", "verb", "event"])
