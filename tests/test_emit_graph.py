@@ -98,9 +98,12 @@ def test_tiny_floor_shape():
     # Player containment
     assert 'engine.relate("in", n_hero, n_entry_hall)' in out
 
-    # Exits (map relations)
-    assert 'engine.relate("map", n_entry_hall, n_inner_sanctum)' in out
-    assert 'engine.relate("map", n_inner_sanctum, n_entry_hall)' in out
+    # Exits (map relations). 'map' is symmetric — the engine auto-creates the
+    # reverse edge — so the two reciprocal exits collapse to ONE relate per
+    # unordered room pair (self-loops/duplicates are dropped).
+    map_lines = [ln for ln in out.splitlines() if 'engine.relate("map"' in ln]
+    assert len(map_lines) == 1, f"expected one map edge for the pair, got {map_lines}"
+    assert map_lines[0].strip() == 'engine.relate("map", n_entry_hall, n_inner_sanctum)'
 
     # Start actor
     assert "engine.set_start_actor(n_hero)" in out
@@ -295,3 +298,66 @@ def test_non_lua_trigger_warning():
     assert "non-script FML body" in out
     # The body content must NOT be emitted as Lua.
     assert "You use the thing" not in out
+
+
+# ─── B3.2 additions: stdlib mode, at_location, player synthesis, map dedup ────
+
+
+def test_stdlib_module_mode_schema_only():
+    """stdlib_module=True emits kinds + verbs, never instances or a start actor."""
+    kind = make_entity("room_kind", "room", "kind_definition", properties={"name": "room"})
+    verb = make_entity("open", "Open", "verb", properties={"noun": "required"})
+    item = make_entity("torch", "Torch", "item", properties={"at_location": "nowhere"})
+    floor = make_floor([kind, verb, item])
+
+    out = emit_lua_graph(floor, stdlib_module=True)
+    assert "engine.define_kind(" in out
+    assert 'name = "open"' in out
+    assert "engine.create_node(" not in out      # no world instances
+    assert "engine.set_start_actor" not in out    # no player
+
+
+def test_at_location_containment():
+    """An entity's at_location lowers to relate('in', ...)."""
+    room = make_entity("hall", "Hall", "room")
+    item = make_entity("coin", "Coin", "item", properties={"at_location": "hall"})
+    out = emit_lua_graph(make_floor([room, item]))
+    assert 'engine.relate("in", n_coin, n_hall)' in out
+
+
+def test_player_synthesis_from_start_location():
+    """No player entity + a start_location room → synthesize a player there."""
+    room = make_entity("entry", "Entry", "room")
+    floor = make_floor([room], start_location="entry")
+    out = emit_lua_graph(floor)
+    assert 'local n__player = engine.create_node({ name = "you" })' in out
+    assert 'engine.relate("in", n__player, n_entry)' in out
+    assert "engine.set_start_actor(n__player)" in out
+
+
+def test_map_self_loop_and_duplicate_dropped():
+    """A room exit to itself, and reciprocal exits, collapse / are dropped."""
+    a = make_entity("a", "A", "room", properties={"exits": {"self": "a", "east": "b"}})
+    b = make_entity("b", "B", "room", properties={"exits": {"west": "a"}})
+    out = emit_lua_graph(make_floor([a, b]))
+    map_lines = [ln for ln in out.splitlines() if 'engine.relate("map"' in ln]
+    assert len(map_lines) == 1                       # one edge for the a/b pair
+    assert 'n_a, n_a' not in out                      # no self-loop
+
+
+def test_room_description_emitted_and_markdown_stripped():
+    """Entity prose becomes a 'description' set_prop with Markdown links flattened."""
+    room = make_entity("hall", "Hall", "room")
+    room.prose = "A grand hall. Go [north](#Foyer) to the foyer."
+    out = emit_lua_graph(make_floor([room], start_location="hall"))
+    assert 'engine.set_prop(n_hall, "description"' in out
+    assert "Go north to the foyer" in out      # link text kept
+    assert "#Foyer" not in out                  # link target stripped
+
+
+def test_stdlib_module_emits_no_descriptions():
+    """A stdlib module has no world instances, hence no description set_prop."""
+    item = make_entity("torch", "Torch", "item")
+    item.prose = "A burning torch."
+    out = emit_lua_graph(make_floor([item]), stdlib_module=True)
+    assert '"description"' not in out

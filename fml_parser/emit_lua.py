@@ -304,27 +304,53 @@ def emit_lua_graph(
     if world_entities:
         parts.append("")
 
+    # 4b. Descriptions — the entity's prose becomes a "description" property the
+    # engine's `look` reads out. (set_prop after create_node so the node exists.)
+    desc_lines: list[str] = []
+    for ent in world_entities:
+        desc = _entity_description(ent)
+        if desc:
+            desc_lines.append(
+                f'engine.set_prop(n_{ent.id}, "description", {_lua_string(desc)})'
+            )
+    if desc_lines:
+        parts.append("-- Descriptions")
+        parts.extend(desc_lines)
+        parts.append("")
+
     # 5. Relations (after all nodes exist) ------------------------------------
     world_ids: set[str] = {e.id for e in world_entities}
     relation_lines: list[str] = []
 
     for ent in world_entities:
-        # Containment: location property → relate("in", ...)
-        location = ent.properties.get("location")
-        if isinstance(location, str) and location in world_ids:
+        # Containment: at_location / location property → relate("in", ...).
+        # (FML uses `at_location` for items in a room; `location` is the older
+        # form. First match wins.)
+        container = ent.properties.get("at_location") or ent.properties.get("location")
+        if isinstance(container, str) and container in world_ids:
             relation_lines.append(
-                f'engine.relate("in", n_{ent.id}, n_{location})'
+                f'engine.relate("in", n_{ent.id}, n_{container})'
             )
 
+    # Exits → 'map' edges. The relation is symmetric, so emit each unordered
+    # room pair once and skip self-loops (avoids duplicate/degenerate edges from
+    # rooms that declare reciprocal or self exits).
+    seen_map_pairs: set[frozenset[str]] = set()
     for ent in world_entities:
-        # Exits: exits (dict) or exit property → relate("map", ...)
         exits = ent.properties.get("exits") or ent.properties.get("exit")
         if isinstance(exits, dict):
             for _direction, dest_slug in exits.items():
-                if isinstance(dest_slug, str) and dest_slug in world_ids:
-                    relation_lines.append(
-                        f'engine.relate("map", n_{ent.id}, n_{dest_slug})'
-                    )
+                if not (isinstance(dest_slug, str) and dest_slug in world_ids):
+                    continue
+                if dest_slug == ent.id:
+                    continue  # self-loop
+                pair = frozenset((ent.id, dest_slug))
+                if pair in seen_map_pairs:
+                    continue
+                seen_map_pairs.add(pair)
+                relation_lines.append(
+                    f'engine.relate("map", n_{ent.id}, n_{dest_slug})'
+                )
 
     if relation_lines:
         parts.append("-- Relations")
@@ -411,14 +437,14 @@ def emit_lua_graph(
     if not stdlib_module:
         start_id: str | None = None
 
-        # Check floor properties for start/player/start_actor.
+        # (a) an explicit start-actor entity named by a floor property.
         for prop_key in ("start_actor", "start", "player"):
             val = floor.properties.get(prop_key)
             if isinstance(val, str) and val in world_ids:
                 start_id = val
                 break
 
-        # If not found, look for an entity whose kind chain includes 'player'/'pc'.
+        # (b) an entity whose kind chain includes 'player'/'pc'.
         if start_id is None:
             for ent in world_entities:
                 chain = ent.kind_chain or [ent.kind]
@@ -429,12 +455,55 @@ def emit_lua_graph(
         if start_id is not None:
             parts.append(f"engine.set_start_actor(n_{start_id})")
         else:
-            parts.append(
-                "-- engine.set_start_actor: no player/start entity determined; set manually"
-            )
+            # (c) No player entity exists (the legacy host synthesized one). If
+            # the floor names a `start_location`/`start` ROOM, synthesize a
+            # player node there and make it the start actor — graph mode has no
+            # player bootstrap, so the floor LFR must create the actor.
+            start_room = None
+            for prop_key in ("start_location", "start", "start_room"):
+                val = floor.properties.get(prop_key)
+                if isinstance(val, str) and val in world_ids:
+                    start_room = val
+                    break
+            if start_room is not None:
+                parts.append("-- Synthesized player (no player entity in source)")
+                parts.append('local n__player = engine.create_node({ name = "you" })')
+                parts.append(f'engine.relate("in", n__player, n_{start_room})')
+                parts.append("engine.set_start_actor(n__player)")
+            else:
+                parts.append(
+                    "-- engine.set_start_actor: no player/start entity determined; set manually"
+                )
 
     parts.append("")
     return "\n".join(parts)
+
+
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+
+
+def _flatten_prose_markup(s: str) -> str:
+    """Reduce inline Markdown to plain text for an in-game description:
+    `[north](#Hall)` → `north`. Leaves other text untouched."""
+    return _MD_LINK_RE.sub(r"\1", s)
+
+
+def _entity_description(ent: FMLEntity) -> str | None:
+    """Flatten an entity's prose into a single description string, or None.
+
+    Plain-string prose is used as-is; a ProseValue (duck-typed by its `lines`)
+    is joined preserving paragraph breaks. Markdown links are reduced to their
+    text. Returns None when there is no prose.
+    """
+    p = ent.prose
+    if isinstance(p, str):
+        s = p.strip()
+    else:
+        lines = getattr(p, "lines", None)
+        s = "\n".join(lines).strip() if lines else ""
+    if not s:
+        return None
+    return _flatten_prose_markup(s)
 
 
 def _collect_scalar_props(ent: FMLEntity) -> dict[str, Any]:
