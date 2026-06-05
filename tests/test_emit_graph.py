@@ -229,6 +229,7 @@ def test_determinism():
         "dungeon", "Dungeon", "room",
         properties={"exits": {"up": "surface"}, "dark": True},
     )
+    room.prose = "A dark dungeon. The only way is [up](#Surface)."  # exercise set_prose path
     surface = make_entity("surface", "Surface", "room")
     npc = make_entity(
         "guard", "Guard", "npc",
@@ -345,19 +346,20 @@ def test_map_self_loop_and_duplicate_dropped():
     assert 'n_a, n_a' not in out                      # no self-loop
 
 
-def test_room_description_emitted_and_markdown_stripped():
-    """Entity prose becomes a 'description' set_prop with Markdown links flattened."""
+def test_room_prose_emitted_as_function_and_markdown_stripped():
+    """Entity prose lowers to engine.set_prose(node, function...) with Markdown
+    links flattened to their text."""
     room = make_entity("hall", "Hall", "room")
     room.prose = "A grand hall. Go [north](#Foyer) to the foyer."
     out = emit_lua_graph(make_floor([room], start_location="hall"))
-    assert 'engine.set_prop(n_hall, "description"' in out
+    assert "engine.set_prose(n_hall, function(self, ctx)" in out
     assert "Go north to the foyer" in out      # link text kept
     assert "#Foyer" not in out                  # link target stripped
 
 
-def test_stdlib_module_emits_no_descriptions():
-    """A stdlib module has no world instances, hence no description set_prop."""
+def test_stdlib_module_emits_no_prose():
+    """A stdlib module has no world instances, hence no set_prose."""
     item = make_entity("torch", "Torch", "item")
     item.prose = "A burning torch."
     out = emit_lua_graph(make_floor([item]), stdlib_module=True)
-    assert '"description"' not in out
+    assert "set_prose" not in out

@@ -304,18 +304,17 @@ def emit_lua_graph(
     if world_entities:
         parts.append("")
 
-    # 4b. Descriptions — the entity's prose becomes a "description" property the
-    # engine's `look` reads out. (set_prop after create_node so the node exists.)
-    desc_lines: list[str] = []
+    # 4b. Prose — an entity's prose lowers to a function(self, ctx) (PROSE.md),
+    # registered with engine.set_prose so the engine renders it at look/examine
+    # time (evaluating any inline conditionals). Markdown links are flattened.
+    prose_lines: list[str] = []
     for ent in world_entities:
-        desc = _entity_description(ent)
-        if desc:
-            desc_lines.append(
-                f'engine.set_prop(n_{ent.id}, "description", {_lua_string(desc)})'
-            )
-    if desc_lines:
-        parts.append("-- Descriptions")
-        parts.extend(desc_lines)
+        fn = _prose_function_literal(ent)
+        if fn is not None:
+            prose_lines.append(f"engine.set_prose(n_{ent.id}, {fn})")
+    if prose_lines:
+        parts.append("-- Prose (set_prose: function(self, ctx))")
+        parts.extend(prose_lines)
         parts.append("")
 
     # 5. Relations (after all nodes exist) ------------------------------------
@@ -528,6 +527,28 @@ def _exit_dest_slug(dest: Any) -> str | None:
         room = dest.get("room")
         if isinstance(room, str):
             return room
+    return None
+
+
+def _prose_function_literal(ent: FMLEntity) -> str | None:
+    """Lower an entity's prose to a Luau ``function(self, ctx) … end`` literal
+    for engine.set_prose, or None if the entity has no prose.
+
+    ProseValue → the full _compile_prose lowering (inline conditionals/
+    substitutions preserved, evaluated at output time); markdown links flattened.
+    LuauCode → the round-tripped function source verbatim.
+    plain str → a trivial function returning the (flattened) text.
+    """
+    p = ent.prose
+    if isinstance(p, ProseValue):
+        return _compile_prose(p, "prose", flatten_markdown=True)
+    if isinstance(p, LuauCode):
+        return p.source
+    if isinstance(p, str):
+        s = _flatten_prose_markup(p.strip())
+        if not s:
+            return None
+        return f"function(self, ctx) return {_lua_string(s)} end"
     return None
 
 
@@ -1265,6 +1286,7 @@ def _compile_prose(
     prose_val: "ProseValue",
     prop_key: str = "prose",
     source_path: str = "",
+    flatten_markdown: bool = False,
 ) -> str:
     """Lower a ProseValue to a Luau ``function(self, ctx) ... end`` string.
 
@@ -1329,6 +1351,8 @@ def _compile_prose(
             # Literal before this backtick segment.
             literal = stripped[cursor : m.start()]
             if literal:
+                if flatten_markdown:
+                    literal = _flatten_prose_markup(literal)
                 escaped = literal.replace("\\", "\\\\").replace('"', '\\"')
                 parts.append(
                     f"  s = s .. \"{escaped}\" -- source: {src_path}:{line_num}"
@@ -1351,6 +1375,8 @@ def _compile_prose(
         # Trailing literal after the last backtick (or the whole line if no backticks).
         trailing = stripped[cursor:]
         if trailing:
+            if flatten_markdown:
+                trailing = _flatten_prose_markup(trailing)
             escaped = trailing.replace("\\", "\\\\").replace('"', '\\"')
             parts.append(
                 f"  s = s .. \"{escaped}\" -- source: {src_path}:{line_num}"
