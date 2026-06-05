@@ -521,3 +521,39 @@ def test_entity_trigger_set_trigger_section_order():
 
     assert create_idx < trigger_idx, "create_node must precede set_trigger"
     assert trigger_idx < verb_idx, "set_trigger must precede define_verb"
+
+
+def test_kind_inherited_triggers_not_set_triggered():
+    """Kind-inherited triggers must NOT be emitted as entity set_trigger calls;
+    only triggers authored directly on the instance are. Generic per-kind verb
+    behavior is the migrated graph verbs' job.
+
+    Regression: the core container kind carries a legacy ctx.self `test:Open`
+    handler. When that leaked onto every container instance as a set_trigger, it
+    fired in the bubble chain, returned false (nil ctx.self), and spuriously
+    failed the graph Open verb ("already open"), hiding the sword in the crypt.
+    """
+    container_kind = make_entity(
+        "container_kind", "container", "kind_definition",
+        properties={"name": "container"},
+        triggers=[Trigger(
+            name="Test Open",
+            script=Script(language="luau", source="return false"),
+        )],
+    )
+    chest = make_entity(
+        "chest", "Chest", "container",
+        properties={"location": "hall"},
+        triggers=[Trigger(
+            name="On Answer",
+            script=Script(language="luau", source='engine.output("ok")'),
+        )],
+        kind_chain=["container"],
+    )
+    room = make_entity("hall", "Hall", "room")
+    out = emit_lua_graph(make_floor([container_kind, chest, room]))
+
+    # The instance-authored trigger IS emitted.
+    assert 'engine.set_trigger(n_chest, "on:Answer"' in out
+    # The kind-inherited trigger is NOT emitted as a set_trigger.
+    assert "test:Open" not in out
