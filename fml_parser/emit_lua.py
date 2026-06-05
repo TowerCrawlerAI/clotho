@@ -336,25 +336,41 @@ def emit_lua_graph(
     # room pair once and skip self-loops (avoids duplicate/degenerate edges from
     # rooms that declare reciprocal or self exits).
     seen_map_pairs: set[frozenset[str]] = set()
+    exit_prop_lines: list[str] = []
     for ent in world_entities:
         exits = ent.properties.get("exits") or ent.properties.get("exit")
-        if isinstance(exits, dict):
-            for _direction, dest_slug in exits.items():
-                if not (isinstance(dest_slug, str) and dest_slug in world_ids):
-                    continue
-                if dest_slug == ent.id:
-                    continue  # self-loop
-                pair = frozenset((ent.id, dest_slug))
-                if pair in seen_map_pairs:
-                    continue
-                seen_map_pairs.add(pair)
-                relation_lines.append(
-                    f'engine.relate("map", n_{ent.id}, n_{dest_slug})'
+        if not isinstance(exits, dict):
+            continue
+        for direction, dest in exits.items():
+            dest_slug = _exit_dest_slug(dest)
+            if not (isinstance(dest_slug, str) and dest_slug in world_ids):
+                continue
+            # Directional exit: a per-room property the engine's `go` reads, so
+            # "go north" / "go n" / bare "north" resolve to the destination.
+            canon = _DIR_CANON.get(str(direction).strip().lower())
+            if canon is not None:
+                exit_prop_lines.append(
+                    f'engine.set_prop(n_{ent.id}, "exit_{canon}", n_{dest_slug})'
                 )
+            # Undirected `map` edge (senses + adjacency + "go <room name>"),
+            # one per unordered pair, no self-loops.
+            if dest_slug == ent.id:
+                continue
+            pair = frozenset((ent.id, dest_slug))
+            if pair in seen_map_pairs:
+                continue
+            seen_map_pairs.add(pair)
+            relation_lines.append(
+                f'engine.relate("map", n_{ent.id}, n_{dest_slug})'
+            )
 
     if relation_lines:
         parts.append("-- Relations")
         parts.extend(relation_lines)
+        parts.append("")
+    if exit_prop_lines:
+        parts.append("-- Directional exits (exit_<dir> = destination node)")
+        parts.extend(exit_prop_lines)
         parts.append("")
 
     # 6. Verbs ----------------------------------------------------------------
@@ -486,6 +502,33 @@ def _flatten_prose_markup(s: str) -> str:
     """Reduce inline Markdown to plain text for an in-game description:
     `[north](#Hall)` → `north`. Leaves other text untouched."""
     return _MD_LINK_RE.sub(r"\1", s)
+
+
+# Movement-direction canonicalization — mirrors canon_direction() in the engine
+# (engine-core src/graph_runtime.c). Maps an exit key to the full-word form used
+# for the room's exit_<dir> property, so "go north"/"go n"/bare "n" all resolve.
+_DIR_CANON = {
+    "north": "north", "n": "north", "south": "south", "s": "south",
+    "east": "east", "e": "east", "west": "west", "w": "west",
+    "up": "up", "u": "up", "down": "down", "d": "down",
+    "northeast": "northeast", "ne": "northeast",
+    "northwest": "northwest", "nw": "northwest",
+    "southeast": "southeast", "se": "southeast",
+    "southwest": "southwest", "sw": "southwest",
+    "in": "in", "inside": "in", "out": "out", "outside": "out",
+}
+
+
+def _exit_dest_slug(dest: Any) -> str | None:
+    """An exit value is either a destination slug (str) or a `{room, door}`
+    table (a door exit); return the destination room slug in both cases."""
+    if isinstance(dest, str):
+        return dest
+    if isinstance(dest, dict):
+        room = dest.get("room")
+        if isinstance(room, str):
+            return room
+    return None
 
 
 def _entity_description(ent: FMLEntity) -> str | None:
