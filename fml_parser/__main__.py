@@ -88,13 +88,9 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("specify either 'lower <index.md>' or '--stdlib-module <index.md>'")
         return 2  # unreachable; ap.error() calls sys.exit(2)
 
-    # --graph selects the binding-surface (LPG) emitter; it only applies to the
-    # 'lower' floor path. Combining it with --stdlib-module is a usage error
-    # rather than silently ignoring it.
-    if args.graph and mode != "floor":
-        ap.error("--graph applies to 'lower'; it cannot be combined with --stdlib-module")
-        return 2  # unreachable; ap.error() calls sys.exit(2)
-
+    # --graph selects the binding-surface (LPG) emitter. It composes with BOTH
+    # modes: `lower --graph` emits a floor LFR (instances), `--stdlib-module
+    # --graph` emits a stdlib LFR (schema + verbs).
     source_path = Path(source_str).resolve()
 
     # Read the FML source.
@@ -125,7 +121,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Emit.
     try:
-        if mode == "stdlib":
+        if mode == "stdlib" and args.graph:
+            lua_source = emit_lua_graph(
+                floor, source_path=str(source_path), stdlib_module=True
+            )
+        elif mode == "stdlib":
             lua_source = emit_lua_stdlib_module(floor, source_path=str(source_path))
         elif args.graph:
             lua_source = emit_lua_graph(floor, source_path=str(source_path))

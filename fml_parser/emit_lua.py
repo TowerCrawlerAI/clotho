@@ -173,23 +173,42 @@ _BUILTIN_VERBS = frozenset(["take", "drop", "put_in", "go"])
 _SCHEMA_KINDS = frozenset(["kind_definition", "verb", "event"])
 
 
-def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
+def emit_lua_graph(
+    floor: Floor,
+    source_path: str | None = None,
+    stdlib_module: bool = False,
+) -> str:
     """Emit a DB-init LFR for the LPG engine binding surface.
 
     Calls ``engine.*`` bindings to populate the graph and register verbs.
-    Emission order (spec §GRAPH_EMITTER.md):
-      1. Header comment
-      2. engine.define_kind per kind_definition entity
-      3. engine.define_relation for 'map' (if any exits are declared)
-      4. engine.create_node per world entity (rooms/items/actors)
-      5. engine.relate for containment (location) and exits (map)
-      6. engine.define_verb per verb entity (skip built-ins)
-      7. engine.set_start_actor
+
+    Two modes (mirroring the legacy emit_lua / emit_lua_stdlib_module split):
+
+    * **stdlib module** (``stdlib_module=True``): emit SCHEMA + PROCEDURES only —
+      ``define_kind`` + ``define_relation`` + ``define_verb``. No world instances,
+      no start actor. This is loaded first in the assembly (``--stdlib``).
+    * **floor** (default): emit INSTANCES — ``create_node`` + ``relate`` +
+      floor-local ``define_verb`` + ``set_start_actor``. Entities/verbs that came
+      from a stdlib import (``floor.stdlib_entity_ids``) are skipped — the stdlib
+      module already registered them; the floor only owns its own content.
+
+    Emission order: header → [stdlib: kinds] → relations(map) → create_node →
+    relate → define_verb (skip engine built-ins) → [floor: set_start_actor].
 
     Deterministic: same input → bit-identical output.
     """
     src = source_path or "unknown.md"
     parts: list[str] = []
+
+    # Scope filter: in floor mode, a non-None stdlib_entity_ids means "only emit
+    # entities this floor owns" (skip imported stdlib catalog/kinds/verbs). In
+    # stdlib-module mode every entity is in scope.
+    stdlib_ids = floor.stdlib_entity_ids or set()
+
+    def _in_scope(ent: FMLEntity) -> bool:
+        if stdlib_module:
+            return True
+        return ent.id not in stdlib_ids
 
     # 1. Header ----------------------------------------------------------------
     lua_path = src.replace(".md", ".lua") if src else "unknown.lua"
@@ -200,9 +219,13 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
     parts.append("")
 
     # 2. Kinds -----------------------------------------------------------------
+    # Only the stdlib module registers kinds; a floor relies on the stdlib it
+    # imports (loaded first in the assembly) to have defined them.
     # Emit in section_mappings order when available, else stable declaration order.
     kind_entities: list[FMLEntity] = []
-    if floor.section_mappings:
+    if not stdlib_module:
+        kind_entities = []
+    elif floor.section_mappings:
         # Collect kind names from section_mappings (preserves declared order).
         seen_kind_names: set[str] = set()
         kind_name_order: list[str] = []
@@ -242,10 +265,15 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
         parts.append("")
 
     # 3. Custom relations — emit 'map' if any world entity declares exits -------
-    world_entities = [
-        e for e in floor.entities.values()
-        if e.kind not in _SCHEMA_KINDS
-    ]
+    # World instances are a floor concern; in stdlib-module mode there are none.
+    world_entities = (
+        []
+        if stdlib_module
+        else [
+            e for e in floor.entities.values()
+            if e.kind not in _SCHEMA_KINDS and _in_scope(e)
+        ]
+    )
     need_map_relation = any(
         e.properties.get("exits") or e.properties.get("exit")
         for e in world_entities
@@ -304,7 +332,11 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
         parts.append("")
 
     # 6. Verbs ----------------------------------------------------------------
-    verb_entities = [e for e in floor.entities.values() if e.kind == "verb"]
+    # stdlib module: all verbs. floor: only floor-local verbs (skip imported).
+    verb_entities = [
+        e for e in floor.entities.values()
+        if e.kind == "verb" and _in_scope(e)
+    ]
     # Build a set of understand_directives indexed by verb_id for O(1) lookup.
     ud_by_verb: dict[str, list[str]] = {}
     for directive in floor.understand_directives:
@@ -375,36 +407,43 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
 
         parts.append("")
 
-    # 7. Start actor ----------------------------------------------------------
-    start_id: str | None = None
+    # 7. Start actor (floor mode only — a stdlib module has no player) --------
+    if not stdlib_module:
+        start_id: str | None = None
 
-    # Check floor properties for start/player/start_actor.
-    for prop_key in ("start_actor", "start", "player"):
-        val = floor.properties.get(prop_key)
-        if isinstance(val, str) and val in world_ids:
-            start_id = val
-            break
-
-    # If not found, look for an entity whose kind chain includes 'player' or 'pc'.
-    if start_id is None:
-        for ent in world_entities:
-            chain = ent.kind_chain or [ent.kind]
-            if any(k in ("player", "pc") for k in chain):
-                start_id = ent.id
+        # Check floor properties for start/player/start_actor.
+        for prop_key in ("start_actor", "start", "player"):
+            val = floor.properties.get(prop_key)
+            if isinstance(val, str) and val in world_ids:
+                start_id = val
                 break
 
-    if start_id is not None:
-        parts.append(f"engine.set_start_actor(n_{start_id})")
-    else:
-        parts.append("-- engine.set_start_actor: no player/start entity determined; set manually")
+        # If not found, look for an entity whose kind chain includes 'player'/'pc'.
+        if start_id is None:
+            for ent in world_entities:
+                chain = ent.kind_chain or [ent.kind]
+                if any(k in ("player", "pc") for k in chain):
+                    start_id = ent.id
+                    break
+
+        if start_id is not None:
+            parts.append(f"engine.set_start_actor(n_{start_id})")
+        else:
+            parts.append(
+                "-- engine.set_start_actor: no player/start entity determined; set manually"
+            )
 
     parts.append("")
     return "\n".join(parts)
 
 
 def _collect_scalar_props(ent: FMLEntity) -> dict[str, Any]:
-    """Return only scalar (str/int/float/bool) properties, excluding location/exits/exit."""
-    _SKIP = frozenset({"location", "exits", "exit"})
+    """Return only scalar (str/int/float/bool) properties, excluding location/exits/exit.
+
+    ``name`` is also skipped: it is emitted explicitly as the create_node name,
+    and repeating it would produce a duplicate Lua table key.
+    """
+    _SKIP = frozenset({"name", "location", "exits", "exit"})
     result: dict[str, Any] = {}
     for k, v in ent.properties.items():
         if k in _SKIP:
