@@ -381,3 +381,143 @@ def test_grammar_maps_fml_noun_2_to_noun2():
                                  "noun_2": "required"})
     out2 = emit_lua_graph(make_floor([v2]))
     assert 'noun2 = "optional"' in out2  # explicit noun2 wins over noun_2
+
+
+# ─── feat/graph-entity-triggers: event on define_verb ────────────────────────
+
+
+def test_verb_event_property_emitted():
+    """A verb with event: Answer → define_verb spec contains event = "Answer"."""
+    script = Script(language="lua", source='engine.output("heard")')
+    trigger = Trigger(name="On Answer", script=script)
+    answer_verb = make_entity(
+        "answer", "Answer", "verb",
+        properties={"noun": "optional", "event": "Answer"},
+        triggers=[trigger],
+    )
+    floor = make_floor([answer_verb])
+    out = emit_lua_graph(floor)
+
+    assert 'engine.define_verb({' in out
+    assert 'name = "answer"' in out
+    assert 'event = "Answer"' in out
+
+
+# ─── feat/graph-entity-triggers: entity set_trigger emission ─────────────────
+
+
+def test_entity_on_answer_trigger():
+    """A non-verb entity with an 'On Answer' luau trigger emits engine.set_trigger
+    with slot 'on:Answer' and the trigger body."""
+    script = Script(language="luau", source='engine.output("You got it!")')
+    trigger = Trigger(name="On Answer", script=script)
+    npc = make_entity(
+        "hanged_corpse", "Hanged Corpse", "npc",
+        triggers=[trigger],
+    )
+    floor = make_floor([npc])
+    out = emit_lua_graph(floor)
+
+    assert 'engine.set_trigger(n_hanged_corpse, "on:Answer", function(ctx)' in out
+    assert 'engine.output("You got it!")' in out
+    assert "end)" in out
+
+
+def test_entity_trigger_two_word_event():
+    """An entity trigger 'After Ask About' → slot 'after:Ask About'."""
+    script = Script(language="luau", source="engine.output(\"Interesting topic.\")")
+    trigger = Trigger(name="After Ask About", script=script)
+    topic = make_entity(
+        "ancient_skull", "Ancient Skull", "npc",
+        triggers=[trigger],
+    )
+    floor = make_floor([topic])
+    out = emit_lua_graph(floor)
+
+    assert 'engine.set_trigger(n_ancient_skull, "after:Ask About", function(ctx)' in out
+    assert 'engine.output("Interesting topic.")' in out
+
+
+def test_entity_trigger_when_guard_compiled():
+    """A trigger with a compilable 'when' guard emits the guard check."""
+    script = Script(language="luau", source="engine.output(\"boo\")")
+    trigger = Trigger(name="On Enter", script=script, when="flag(lights_out)")
+    room = make_entity("dark_room", "Dark Room", "room", triggers=[trigger])
+    floor = make_floor([room])
+    out = emit_lua_graph(floor)
+
+    assert 'engine.set_trigger(n_dark_room, "on:Enter", function(ctx)' in out
+    assert 'if not (' in out
+    assert '"lights_out"' in out
+    assert 'engine.output("boo")' in out
+
+
+def test_entity_trigger_when_guard_uncompilable_emits_todo():
+    """A trigger with a complex (uncompilable) 'when' guard emits a TODO comment."""
+    script = Script(language="luau", source="engine.output(\"surprise\")")
+    trigger = Trigger(name="On Enter", script=script, when="time_in_room(entry) >= 3")
+    room = make_entity("entry_room", "Entry Room", "room", triggers=[trigger])
+    floor = make_floor([room])
+    out = emit_lua_graph(floor)
+
+    assert 'engine.set_trigger(n_entry_room, "on:Enter", function(ctx)' in out
+    assert "-- TODO: when guard not compiled:" in out
+    assert 'engine.output("surprise")' in out
+
+
+def test_entity_non_lua_trigger_no_set_trigger():
+    """A non-verb entity with a non-lua trigger body does NOT emit set_trigger,
+    but DOES emit a WARNING comment."""
+    from fml_parser.models import OutputLine
+    trigger = Trigger(
+        name="On Take",
+        body=[OutputLine(template="You take the thing.")],
+    )
+    item = make_entity("cursed_ring", "Cursed Ring", "item", triggers=[trigger])
+    floor = make_floor([item])
+    out = emit_lua_graph(floor)
+
+    assert "engine.set_trigger" not in out
+    assert "WARNING" in out
+    assert "cursed_ring" in out
+
+
+def test_verb_entity_triggers_not_set_triggered():
+    """Verbs keep using stages={{...}}; set_trigger must NOT be emitted for verbs."""
+    script = Script(language="lua", source="engine.output(\"done\")")
+    trigger = Trigger(name="On Use", script=script)
+    use_verb = make_entity("use", "Use", "verb", triggers=[trigger])
+    floor = make_floor([use_verb])
+    out = emit_lua_graph(floor)
+
+    assert "stages = {" in out
+    assert "engine.set_trigger" not in out
+
+
+def test_entity_trigger_set_trigger_section_order():
+    """set_trigger calls appear after create_node/relate but before define_verb."""
+    script = Script(language="lua", source="engine.output(\"ow\")")
+    trigger = Trigger(name="On Attack", script=script)
+    npc = make_entity("goblin", "Goblin", "npc", triggers=[trigger])
+    attack_verb = make_entity("attack", "Attack", "verb",
+                               properties={"noun": "required", "event": "Attack"})
+    floor = make_floor([npc, attack_verb])
+    out = emit_lua_graph(floor)
+    lines = out.splitlines()
+
+    def line_index(fragment: str) -> int:
+        for i, ln in enumerate(lines):
+            if fragment in ln:
+                return i
+        return -1
+
+    create_idx = line_index("n_goblin = engine.create_node")
+    trigger_idx = line_index('engine.set_trigger(n_goblin')
+    verb_idx = line_index('name = "attack"')
+
+    assert create_idx != -1
+    assert trigger_idx != -1
+    assert verb_idx != -1
+
+    assert create_idx < trigger_idx, "create_node must precede set_trigger"
+    assert trigger_idx < verb_idx, "set_trigger must precede define_verb"
