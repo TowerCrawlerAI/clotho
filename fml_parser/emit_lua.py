@@ -396,8 +396,9 @@ def emit_lua_graph(
         parts.append(f"    name = {_lua_string(verb_name)},")
 
         # Grammar fields → engine.define_verb spec, mapping the FML property
-        # names (noun_2 / noun_scope / noun_scope_2) onto the spec names the
-        # engine expects (noun2 / scope). First present name wins.
+        # names (noun_2, noun_scope) onto the spec names the engine expects
+        # (noun2, scope). First present name wins. (noun_scope_2 has no spec
+        # field — the engine uses one scope hint for both nouns — so it's dropped.)
         grammar_map = (
             ("noun",           ("noun",)),
             ("noun2",          ("noun2", "noun_2")),

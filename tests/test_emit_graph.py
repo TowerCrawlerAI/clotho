@@ -363,3 +363,21 @@ def test_stdlib_module_emits_no_prose():
     item.prose = "A burning torch."
     out = emit_lua_graph(make_floor([item]), stdlib_module=True)
     assert "set_prose" not in out
+
+
+def test_grammar_maps_fml_noun_2_to_noun2():
+    """FML authors noun_2/noun_scope; the graph spec wants noun2/scope. Confirm
+    the mapping, and that an explicit noun2 wins over noun_2 (first-present)."""
+    v1 = make_entity("fill", "Fill", "verb",
+                     properties={"noun": "required", "noun_2": "required",
+                                 "noun_scope": "inventory"})
+    out1 = emit_lua_graph(make_floor([v1]))
+    assert "noun2 = " in out1            # mapped from noun_2
+    assert "scope = " in out1            # mapped from noun_scope
+    assert "noun_2 = " not in out1       # FML name not emitted verbatim
+
+    v2 = make_entity("give", "Give", "verb",
+                     properties={"noun": "required", "noun2": "optional",
+                                 "noun_2": "required"})
+    out2 = emit_lua_graph(make_floor([v2]))
+    assert 'noun2 = "optional"' in out2  # explicit noun2 wins over noun_2
