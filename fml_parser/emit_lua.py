@@ -372,6 +372,51 @@ def emit_lua_graph(
         parts.extend(exit_prop_lines)
         parts.append("")
 
+    # 5b. Entity reaction triggers (non-verb world entities) ------------------
+    # Emit engine.set_trigger(n_<id>, "<slot>", function(ctx) ... end) for each
+    # lua/luau trigger on a non-verb world entity. Uses the merged trigger set
+    # (kind-chain + instance) so inherited triggers are included.
+    trigger_lines: list[str] = []
+    for ent in world_entities:
+        _, merged_triggers = _resolve_inherited_properties(ent, floor)
+        lua_entity_triggers = [
+            t for t in merged_triggers
+            if t.script is not None and t.script.language in ("lua", "luau")
+        ]
+        non_lua_entity_triggers = [
+            t for t in merged_triggers
+            if t.script is None or t.script.language not in ("lua", "luau")
+        ]
+        for trigger in lua_entity_triggers:
+            slot = _trigger_slot_key(trigger.name)
+            trigger_lines.append(
+                f"engine.set_trigger(n_{ent.id}, {_lua_string(slot)}, function(ctx)"
+            )
+            guard = _compile_when_guard(trigger.when) if trigger.when else None
+            if trigger.when and guard is None:
+                trigger_lines.append(
+                    f"    -- TODO: when guard not compiled: {trigger.when!r}"
+                )
+            elif guard is not None:
+                trigger_lines.append(f"    if not ({guard}) then return end")
+            body = _trigger_body(trigger)
+            if body:
+                for line in body.splitlines():
+                    trigger_lines.append(f"    {line}" if line.strip() else "")
+            trigger_lines.append("end)")
+        for trigger in non_lua_entity_triggers:
+            # Only warn when the trigger has any content at all (body or script).
+            if trigger.script is not None or trigger.body:
+                trigger_lines.append(
+                    f"-- WARNING: entity {_lua_string(ent.id)} trigger {_lua_string(trigger.name)}"
+                    f" has a non-script FML body; not transpiled (lean scope)"
+                    f" — rewrite as emergent or native lua"
+                )
+    if trigger_lines:
+        parts.append("-- Entity reaction triggers (set_trigger)")
+        parts.extend(trigger_lines)
+        parts.append("")
+
     # 6. Verbs ----------------------------------------------------------------
     # stdlib module: all verbs. floor: only floor-local verbs (skip imported).
     verb_entities = [
@@ -406,6 +451,7 @@ def emit_lua_graph(
             ("scope",          ("scope", "noun_scope")),
             ("target_rel",     ("target_rel",)),
             ("subject_is_src", ("subject_is_src",)),
+            ("event",          ("event",)),
         )
         for spec_key, fml_names in grammar_map:
             for nm in fml_names:
