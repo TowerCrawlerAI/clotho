@@ -395,12 +395,23 @@ def emit_lua_graph(
         parts.append(f"engine.define_verb({{")
         parts.append(f"    name = {_lua_string(verb_name)},")
 
-        # Grammar fields from properties.
-        grammar_keys = ("noun", "noun2", "preposition", "scope", "target_rel", "subject_is_src")
-        for key in grammar_keys:
-            val = ent.properties.get(key)
-            if val is not None:
-                parts.append(f"    {_lua_key(key)} = {_lua_value(val)},")
+        # Grammar fields → engine.define_verb spec, mapping the FML property
+        # names (noun_2 / noun_scope / noun_scope_2) onto the spec names the
+        # engine expects (noun2 / scope). First present name wins.
+        grammar_map = (
+            ("noun",           ("noun",)),
+            ("noun2",          ("noun2", "noun_2")),
+            ("preposition",    ("preposition",)),
+            ("scope",          ("scope", "noun_scope")),
+            ("target_rel",     ("target_rel",)),
+            ("subject_is_src", ("subject_is_src",)),
+        )
+        for spec_key, fml_names in grammar_map:
+            for nm in fml_names:
+                val = ent.properties.get(nm)
+                if val is not None:
+                    parts.append(f"    {_lua_key(spec_key)} = {_lua_value(val)},")
+                    break
 
         # Aliases: from props aliases/phrases + understand_directives.
         alias_list: list[str] = []
