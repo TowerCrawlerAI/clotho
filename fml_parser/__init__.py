@@ -17,6 +17,7 @@ ticket P1; the engine loads `.lua` LFR directly via FFI in P2+.
 from __future__ import annotations
 
 from .emitter import emit_fml
+from .emit_lua import emit_lua_graph
 from .errors import (
     FloorLoadError,
     FmlEmitError,
@@ -69,6 +70,7 @@ __all__ = [
     # Parsing / emission
     "parse_fml",
     "emit_fml",
+    "emit_lua_graph",
     "slugify",
     # Models
     "EntityId",
