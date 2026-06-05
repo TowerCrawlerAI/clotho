@@ -308,14 +308,12 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
             if isinstance(phrase, str) and phrase:
                 ud_by_verb.setdefault(directive.verb_id, []).append(phrase)
 
-    emitted_any_verb = False
     for ent in verb_entities:
         verb_name = ent.id
         # Skip built-in verbs.
         if verb_name in _BUILTIN_VERBS:
             continue
 
-        emitted_any_verb = True
         parts.append(f"-- verb: {verb_name}")
         parts.append(f"engine.define_verb({{")
         parts.append(f"    name = {_lua_string(verb_name)},")
@@ -372,9 +370,6 @@ def emit_lua_graph(floor: Floor, source_path: str | None = None) -> str:
             )
 
         parts.append("")
-
-    if not emitted_any_verb:
-        _ = emitted_any_verb  # silence linter
 
     # 7. Start actor ----------------------------------------------------------
     start_id: str | None = None
