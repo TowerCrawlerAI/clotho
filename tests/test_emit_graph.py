@@ -229,6 +229,7 @@ def test_determinism():
         "dungeon", "Dungeon", "room",
         properties={"exits": {"up": "surface"}, "dark": True},
     )
+    room.prose = "A dark dungeon. The only way is [up](#Surface)."  # exercise set_prose path
     surface = make_entity("surface", "Surface", "room")
     npc = make_entity(
         "guard", "Guard", "npc",
