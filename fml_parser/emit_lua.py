@@ -374,17 +374,28 @@ def emit_lua_graph(
 
     # 5b. Entity reaction triggers (non-verb world entities) ------------------
     # Emit engine.set_trigger(n_<id>, "<slot>", function(ctx) ... end) for each
-    # lua/luau trigger on a non-verb world entity. Uses the merged trigger set
-    # (kind-chain + instance) so inherited triggers are included.
+    # lua/luau trigger authored DIRECTLY ON THE INSTANCE.
+    #
+    # We deliberately do NOT include kind-inherited triggers here. In the graph
+    # model, generic per-kind verb behavior is implemented by the migrated graph
+    # VERBS (their stages), not by per-entity reactions. The core stdlib kinds
+    # still carry legacy verb-handler triggers (container's test:Open, item's
+    # on:Take, …) written for the old ctx.self model; emitting those onto every
+    # instance makes them fire in the bubble chain with a nil ctx.self and
+    # spuriously fail core verbs (e.g. Open → "already open"). Entity reactions
+    # are authored on the specific entity (e.g. the Hanged Corpse's on:Answer),
+    # which is exactly `ent.triggers`. Kind-level reactions can be revisited once
+    # the core kinds are stripped of their legacy handlers (engine task: retire
+    # the legacy Luau-dispatch path).
     trigger_lines: list[str] = []
     for ent in world_entities:
-        _, merged_triggers = _resolve_inherited_properties(ent, floor)
+        instance_triggers = ent.triggers
         lua_entity_triggers = [
-            t for t in merged_triggers
+            t for t in instance_triggers
             if t.script is not None and t.script.language in ("lua", "luau")
         ]
         non_lua_entity_triggers = [
-            t for t in merged_triggers
+            t for t in instance_triggers
             if t.script is None or t.script.language not in ("lua", "luau")
         ]
         for trigger in lua_entity_triggers:
