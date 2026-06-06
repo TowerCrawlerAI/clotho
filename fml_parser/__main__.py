@@ -130,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     # Emit.
     try:
         if mode == "stdlib" and args.om:
+            # NOTE (P6a): the stdlib+om path emits a structural module but does
+            # NOT populate the om kind:<name> registry the floor's _proto helper
+            # reads — the emitted LFR self-flags this with a WARNING comment.
+            # Full om stdlib lowering (kind nodes + behaviour fragments) is the
+            # deferred behaviour-port phase; see emit_lua_om docstring.
             lua_source = emit_lua_om(
                 floor, source_path=str(source_path), stdlib_module=True
             )

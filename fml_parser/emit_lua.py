@@ -258,9 +258,26 @@ def emit_lua_graph(
     # fall through to object's defaults — no set_prototype, no error.
     if om and not stdlib_module:
         parts.append("local function _proto(n, kind)")
+        parts.append("    -- kind: the kind name string (e.g. \"room\"); resolve the kind")
+        parts.append("    -- node registered as kind:<name> on object and set it as n's prototype.")
         parts.append('    local k = engine.get_prop(om.object(), "kind:" .. kind)')
         parts.append("    if k then om.set_prototype(n, k) end")
         parts.append("end")
+        parts.append("")
+    elif om and stdlib_module:
+        # P6a: the stdlib+om path is structurally lowered but does NOT yet
+        # register kinds into the kind:<name> registry the floor's _proto helper
+        # reads (that needs the full om kind-node emission, deferred to the
+        # behaviour-port phase). A floor lowered with --om resolves its core
+        # kinds from the engine trampoline; until the stdlib is ported, custom
+        # stdlib kinds fall through to object. Flag it so this isn't shipped as
+        # a complete om stdlib by mistake.
+        parts.append(
+            "-- WARNING: --stdlib-module --om is P6a-incomplete: kinds are NOT yet"
+        )
+        parts.append(
+            "-- registered in the om kind:<name> registry (behaviour-port phase)."
+        )
         parts.append("")
 
     # 2. Kinds -----------------------------------------------------------------
