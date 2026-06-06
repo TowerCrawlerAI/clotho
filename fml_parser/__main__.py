@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from .errors import FmlImportError, FmlSyntaxError
-from .emit_lua import emit_lua, emit_lua_graph, emit_lua_stdlib_module
+from .emit_lua import emit_lua, emit_lua_graph, emit_lua_om, emit_lua_stdlib_module
 from .parser import parse_fml
 
 
@@ -50,6 +50,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Emit binding-surface (graph) LFR via emit_lua_graph instead of the legacy emit_lua.",
+    )
+
+    ap.add_argument(
+        "--om",
+        action="store_true",
+        default=False,
+        help="Emit object-model (prototype) LFR via emit_lua_om (for crawler --engine om). "
+        "Composes with 'lower' and --stdlib-module. Implies the graph binding surface.",
     )
 
     # Positional sub-command + source path.
@@ -121,7 +129,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # Emit.
     try:
-        if mode == "stdlib" and args.graph:
+        if mode == "stdlib" and args.om:
+            lua_source = emit_lua_om(
+                floor, source_path=str(source_path), stdlib_module=True
+            )
+        elif args.om:
+            lua_source = emit_lua_om(floor, source_path=str(source_path))
+        elif mode == "stdlib" and args.graph:
             lua_source = emit_lua_graph(
                 floor, source_path=str(source_path), stdlib_module=True
             )
