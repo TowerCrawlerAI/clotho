@@ -96,18 +96,68 @@ def test_verbs_grammar_only_no_stages():
     assert "glug" not in out
 
 
-def test_entity_triggers_skipped():
+def test_entity_triggers_lower_to_om_on():
+    # a lua/luau instance trigger lowers to om.on(node, "On<Event>", fn) — NOT
+    # engine.set_trigger (that's the graph path) — with the body preserved.
     npc = make_entity(
         "oracle", "Oracle", "npc",
         properties={"location": "cell"},
-        triggers=[Trigger(name="on:Answer", script=Script(language="lua",
+        triggers=[Trigger(name="On Answer", script=Script(language="lua",
                                                           source="engine.output('hmm')"))],
     )
     cell = make_entity("cell", "Cell", "room")
     out = emit_lua_om(make_floor([cell, npc], start_location="cell"))
-    assert "engine.set_trigger" not in out
-    assert "hmm" not in out
-    assert '_proto(n_oracle, "npc")' in out   # still placed structurally
+    assert "engine.set_trigger" not in out          # not the graph path
+    assert 'om.on(n_oracle, "OnAnswer", function(ctx)' in out
+    assert "engine.output('hmm')" in out            # body preserved
+    assert '_proto(n_oracle, "npc")' in out          # still placed structurally
+
+
+def test_om_event_name_mapping():
+    # the <stage> <Event> heading collapses to On<Event> for the om event bus.
+    from fml_parser.emit_lua import _om_event_name
+    assert _om_event_name("On Open") == "OnOpen"
+    assert _om_event_name("After Enter") == "OnEnter"
+    assert _om_event_name("On RoundStart") == "OnRoundStart"
+    assert _om_event_name("InsteadOf Damaged") == "OnDamaged"
+    assert _om_event_name("On Answer") == "OnAnswer"
+    assert _om_event_name("Look") == "OnLook"          # single non-stage word
+    assert _om_event_name("On") == "On"                # bare stage word, no event
+    assert _om_event_name("") == "On"                  # empty
+
+
+def test_om_trigger_when_guard_and_multiple():
+    # an om trigger with a `when:` guard emits the guard, and two triggers on
+    # one entity each emit their own om.on.
+    npc = make_entity(
+        "warden", "Warden", "npc",
+        properties={"location": "cell"},
+        triggers=[
+            Trigger(name="On Enter", when="flag(alarm)",
+                    script=Script(language="lua", source="engine.output('halt')")),
+            Trigger(name="On Take", script=Script(language="lua",
+                                                  source="engine.output('mine')")),
+        ],
+    )
+    cell = make_entity("cell", "Cell", "room")
+    out = emit_lua_om(make_floor([cell, npc], start_location="cell"))
+    assert 'om.on(n_warden, "OnEnter", function(ctx)' in out
+    assert 'om.on(n_warden, "OnTake", function(ctx)' in out
+    # the when-guard is emitted as an early-return (same form as graph mode)
+    assert "then return end" in out
+
+
+def test_non_lua_trigger_body_warned_not_emitted():
+    # an FML action-vocabulary body (no lua/luau script) is not transpiled (same
+    # as graph mode) — it warns rather than emitting a broken om.on.
+    room = make_entity(
+        "hall", "Hall", "room",
+        triggers=[Trigger(name="After Enter",
+                          script=Script(language="python", source="set_flag('x')"))],
+    )
+    out = emit_lua_om(make_floor([room], start_location="hall"))
+    assert "om.on(n_hall" not in out
+    assert "WARNING" in out
 
 
 # ─── containment + exits preserved ───────────────────────────────────────────
