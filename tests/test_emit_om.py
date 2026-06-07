@@ -147,6 +147,38 @@ def test_om_trigger_when_guard_and_multiple():
     assert "then return end" in out
 
 
+def test_interception_triggers_lower_to_before_self():
+    # Test/InsteadOf/Before lua triggers BLOCK an action → a Before-stage SELF
+    # behaviour on the reach-path (not a post-commit om.on reaction).
+    box = make_entity(
+        "chest", "Chest", "container",
+        properties={"location": "cell"},
+        triggers=[
+            Trigger(name="Test Take", script=Script(language="lua",
+                    source="if self.open ~= true then ctx:veto('shut') end")),
+            Trigger(name="Before Attack", script=Script(language="lua",
+                    source="ctx:veto('warded')")),
+        ],
+    )
+    cell = make_entity("cell", "Cell", "room")
+    out = emit_lua_om(make_floor([cell, box], start_location="cell"))
+    assert 'om.set_behaviour(n_chest, "take", "before", "self", function(ctx)' in out
+    assert 'om.set_behaviour(n_chest, "attack", "before", "self", function(ctx)' in out
+    assert "om.on(n_chest" not in out          # interception ≠ reaction
+    assert "ctx:veto('shut')" in out
+
+
+def test_reaction_vs_interception_split():
+    # On/After → om.on reaction; Test/InsteadOf/Before → before/self behaviour.
+    from fml_parser.emit_lua import _om_interception_verb, _OM_INTERCEPTION_STAGES, _verb_stage_key
+    assert _om_interception_verb("Test Take") == "take"
+    assert _om_interception_verb("InsteadOf Attack") == "attack"
+    assert _om_interception_verb("Before Put In") == "put-in"
+    assert _verb_stage_key("On Open") not in _OM_INTERCEPTION_STAGES
+    assert _verb_stage_key("After Enter") not in _OM_INTERCEPTION_STAGES
+    assert _verb_stage_key("InsteadOf Take") in _OM_INTERCEPTION_STAGES
+
+
 def test_non_lua_trigger_body_warned_not_emitted():
     # an FML action-vocabulary body (no lua/luau script) is not transpiled (same
     # as graph mode) — it warns rather than emitting a broken om.on.

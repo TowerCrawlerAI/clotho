@@ -190,6 +190,25 @@ def _om_event_name(trigger_name: str) -> str:
     return "On" + "".join(w[:1].upper() + w[1:] for w in event_words)
 
 
+# Interception stages — triggers that BLOCK/redirect an action rather than react
+# to it. In the object model they lower to a Before-stage SELF behaviour on the
+# reach-path (OBJECT_MODEL §5.6 / SCENES_AND_ACTS O4), able to ctx:veto. The
+# post-commit On/After/Report stages lower to om.on reactions instead.
+_OM_INTERCEPTION_STAGES = frozenset(["test", "instead_of", "before"])
+
+
+def _om_interception_verb(trigger_name: str) -> str:
+    """The verb an interception trigger guards: the event word(s) after the
+    stage, lowercased and hyphen-joined. 'Test Take'→'take', 'InsteadOf Attack'
+    →'attack', 'Before Put In'→'put-in'."""
+    parts = trigger_name.split()
+    if len(parts) > 1 and parts[0].lower() in _TRIGGER_STAGE_WORDS:
+        event_words = parts[1:]
+    else:
+        event_words = parts
+    return "-".join(w.lower() for w in event_words)
+
+
 # ─── Graph emitter (F6 — binding-surface LFR) ────────────────────────────────
 
 # Built-in verbs the engine bootstraps (tg_verb_bootstrap): take, drop, put-in, go.
@@ -511,10 +530,20 @@ def emit_lua_graph(
         ]
         for trigger in lua_entity_triggers:
             if om:
-                event = _om_event_name(trigger.name)
-                trigger_lines.append(
-                    f"om.on(n_{ent.id}, {_lua_string(event)}, function(ctx)"
-                )
+                if _verb_stage_key(trigger.name) in _OM_INTERCEPTION_STAGES:
+                    # interception → a Before-stage SELF behaviour on the
+                    # reach-path (can ctx:veto). Test+InsteadOf for the same verb
+                    # both land here; author one Before trigger to avoid the
+                    # later-wins collision on (node, verb, before, self).
+                    verb = _om_interception_verb(trigger.name)
+                    trigger_lines.append(
+                        f'om.set_behaviour(n_{ent.id}, {_lua_string(verb)}, "before", "self", function(ctx)'
+                    )
+                else:
+                    event = _om_event_name(trigger.name)
+                    trigger_lines.append(
+                        f"om.on(n_{ent.id}, {_lua_string(event)}, function(ctx)"
+                    )
             else:
                 slot = _trigger_slot_key(trigger.name)
                 trigger_lines.append(
