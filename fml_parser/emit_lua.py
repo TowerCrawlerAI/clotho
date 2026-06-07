@@ -160,6 +160,35 @@ def _verb_stage_key(trigger_name: str) -> str:
     return _STAGE_MAP.get(parts[0], parts[0].lower())
 
 
+# Stage words that prefix a trigger heading in the legacy <stage> <Event> form.
+_TRIGGER_STAGE_WORDS = frozenset(
+    ["test", "insteadof", "instead_of", "before", "on", "after", "report"]
+)
+
+
+def _om_event_name(trigger_name: str) -> str:
+    """Map an FML trigger heading to the om event name (SCENES_AND_ACTS §3).
+
+    The object-model event bus has a single post-commit event per occurrence
+    (``OnEnter``/``OnOpen``/…); the legacy ``<stage> <Event>`` distinction
+    collapses to ``On<Event>``. Examples:
+      'On Open'          → 'OnOpen'
+      'After Enter'      → 'OnEnter'
+      'On RoundStart'    → 'OnRoundStart'
+      'InsteadOf Damaged'→ 'OnDamaged'   (veto semantics are O4, not yet honoured)
+    The leading stage word is dropped; remaining words are concatenated with the
+    first letter of each upper-cased, prefixed with 'On'.
+    """
+    parts = trigger_name.split()
+    if not parts:
+        return "On"
+    if len(parts) > 1 and parts[0].lower() in _TRIGGER_STAGE_WORDS:
+        event_words = parts[1:]
+    else:
+        event_words = parts
+    return "On" + "".join(w[:1].upper() + w[1:] for w in event_words)
+
+
 # ─── Graph emitter (F6 — binding-surface LFR) ────────────────────────────────
 
 # Built-in verbs the engine bootstraps (tg_verb_bootstrap): take, drop, put-in, go.
@@ -189,12 +218,17 @@ def emit_lua_om(
       ``object``. The string ``kind`` property is dropped (the edge replaces it).
     * verbs are emitted **grammar-only** (``engine.define_verb`` with no stages)
       so the om parser can resolve nouns; their behaviour is Model-A fragments
-      (``om.set_behaviour``) — the behaviour port is a later phase, so stages and
-      entity reaction triggers are skipped here (the world is walkable: the
-      trampoline's universal verbs drive look/take/drop/go/open).
+      (``om.set_behaviour``) — verb-stage behaviour is a later phase.
+    * instance lua/luau **reaction triggers** lower to Layer-B subscriptions
+      (SCENES_AND_ACTS §3): ``om.on(node, "On<Event>", function(ctx) … end)``,
+      fired by the engine/trampoline event bus. (Bodies authored against the
+      legacy host API — ``ctx.noun``, ``engine.set_property``/``set_world`` — do
+      not resolve against the om reaction ctx + graph store and need a content
+      port; the lowering itself is correct.)
 
-    P6a scope: structural lowering (a walkable world). Behaviour fragments
-    (verb stages + entity triggers → om.set_behaviour with roles) follow.
+    Scope: structural lowering + Layer-B reaction subscriptions. Verb-stage
+    behaviour (om.set_behaviour with roles) and FML action-vocabulary bodies
+    (Set/Trigger/Block) are later phases.
     """
     return emit_lua_graph(
         floor, source_path=source_path, stdlib_module=stdlib_module, om=True
@@ -456,11 +490,15 @@ def emit_lua_graph(
     # which is exactly `ent.triggers`. Kind-level reactions can be revisited once
     # the core kinds are stripped of their legacy handlers (engine task: retire
     # the legacy Luau-dispatch path).
-    # om: entity reaction triggers are behaviour and belong on om.set_behaviour
-    # (with a role), which is the deferred behaviour-port phase — skip here so
-    # the structural floor stays walkable without half-wired legacy triggers.
+    # In om mode the SAME instance lua/luau triggers lower to Layer-B reactions
+    # (SCENES_AND_ACTS §3): om.on(node, "On<Event>", function(ctx) … end), fired
+    # by the engine/trampoline event bus. The closure receives the event payload
+    # as `ctx`. (NB: bodies authored against the legacy host API — ctx.noun,
+    # engine.set_property/set_world — won't resolve against the om reaction ctx +
+    # graph store; those bodies need a content port. The LOWERING is correct; the
+    # legacy body content is a separate sample-dungeon concern.)
     trigger_lines: list[str] = []
-    for ent in (world_entities if not om else []):
+    for ent in world_entities:
         instance_triggers = ent.triggers
         lua_entity_triggers = [
             t for t in instance_triggers
@@ -471,10 +509,16 @@ def emit_lua_graph(
             if t.script is None or t.script.language not in ("lua", "luau")
         ]
         for trigger in lua_entity_triggers:
-            slot = _trigger_slot_key(trigger.name)
-            trigger_lines.append(
-                f"engine.set_trigger(n_{ent.id}, {_lua_string(slot)}, function(ctx)"
-            )
+            if om:
+                event = _om_event_name(trigger.name)
+                trigger_lines.append(
+                    f"om.on(n_{ent.id}, {_lua_string(event)}, function(ctx)"
+                )
+            else:
+                slot = _trigger_slot_key(trigger.name)
+                trigger_lines.append(
+                    f"engine.set_trigger(n_{ent.id}, {_lua_string(slot)}, function(ctx)"
+                )
             guard = _compile_when_guard(trigger.when) if trigger.when else None
             if trigger.when and guard is None:
                 trigger_lines.append(
@@ -496,7 +540,8 @@ def emit_lua_graph(
                     f" — rewrite as emergent or native lua"
                 )
     if trigger_lines:
-        parts.append("-- Entity reaction triggers (set_trigger)")
+        header = "Entity reaction triggers (om.on)" if om else "Entity reaction triggers (set_trigger)"
+        parts.append(f"-- {header}")
         parts.extend(trigger_lines)
         parts.append("")
 
