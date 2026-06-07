@@ -47,11 +47,11 @@ def _tiny_floor() -> Floor:
 
 def test_emits_proto_helper_and_edges():
     out = emit_lua_om(_tiny_floor(), source_path="floor.md")
-    # the _proto helper is defined once, reading the kind:<name> registry
-    assert "local function _proto(n, kind)" in out
-    assert 'engine.get_prop(wyrd.object(), "kind:" .. kind)' in out
+    # the _proto helper is defined once, resolving via the wyrd.named registry
+    assert "local function _proto(n, name)" in out
+    assert "local k = wyrd.named(name)" in out
     assert "wyrd.set_prototype(n, k)" in out
-    # each world entity gets a prototype edge from its kind
+    # each world entity gets a prototype edge from its declared name
     assert '_proto(n_key, "item")' in out
     assert '_proto(n_grate, "scenery")' in out
     assert '_proto(n_cell, "room")' in out

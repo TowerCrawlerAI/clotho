@@ -306,15 +306,16 @@ def emit_lua_graph(
     parts.append(f"-- fml-source-hash: {hash_val}")
     parts.append("")
 
-    # om floor: a helper to set an instance's prototype from its kind name,
-    # resolved at load time from the `kind:<name>` registry on `object` (the
-    # trampoline + any om stdlib module register kinds there). Unknown kinds
-    # fall through to object's defaults — no set_prototype, no error.
+    # om floor: a helper to set an instance's prototype from its declared name,
+    # resolved at load time via the wyrd.named name→node registry (the trampoline
+    # + any om stdlib module register the base prototypes there). Unknown names
+    # fall through to object's defaults — no set_prototype, no error. ("kind" has
+    # dissolved into "a named prototype"; the registry is wyrd.named, not kind:.)
     if om and not stdlib_module:
-        parts.append("local function _proto(n, kind)")
-        parts.append("    -- kind: the kind name string (e.g. \"room\"); resolve the kind")
-        parts.append("    -- node registered as kind:<name> on object and set it as n's prototype.")
-        parts.append('    local k = engine.get_prop(wyrd.object(), "kind:" .. kind)')
+        parts.append("local function _proto(n, name)")
+        parts.append("    -- name: a prototype name (e.g. \"room\"); resolve the node")
+        parts.append("    -- registered under that name and set it as n's prototype.")
+        parts.append('    local k = wyrd.named(name)')
         parts.append("    if k then wyrd.set_prototype(n, k) end")
         parts.append("end")
         parts.append("")
