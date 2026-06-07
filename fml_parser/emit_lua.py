@@ -314,8 +314,8 @@ def emit_lua_graph(
         parts.append("local function _proto(n, kind)")
         parts.append("    -- kind: the kind name string (e.g. \"room\"); resolve the kind")
         parts.append("    -- node registered as kind:<name> on object and set it as n's prototype.")
-        parts.append('    local k = engine.get_prop(om.object(), "kind:" .. kind)')
-        parts.append("    if k then om.set_prototype(n, k) end")
+        parts.append('    local k = engine.get_prop(wyrd.object(), "kind:" .. kind)')
+        parts.append("    if k then wyrd.set_prototype(n, k) end")
         parts.append("end")
         parts.append("")
     elif om and stdlib_module:
@@ -537,12 +537,12 @@ def emit_lua_graph(
                     # later-wins collision on (node, verb, before, self).
                     verb = _om_interception_verb(trigger.name)
                     trigger_lines.append(
-                        f'om.set_behaviour(n_{ent.id}, {_lua_string(verb)}, "before", "self", function(ctx)'
+                        f'wyrd.set_behaviour(n_{ent.id}, {_lua_string(verb)}, "before", "self", function(ctx)'
                     )
                 else:
                     event = _om_event_name(trigger.name)
                     trigger_lines.append(
-                        f"om.on(n_{ent.id}, {_lua_string(event)}, function(ctx)"
+                        f"wyrd.on(n_{ent.id}, {_lua_string(event)}, function(ctx)"
                     )
             else:
                 slot = _trigger_slot_key(trigger.name)
@@ -570,7 +570,7 @@ def emit_lua_graph(
                     f" — rewrite as emergent or native lua"
                 )
     if trigger_lines:
-        header = "Entity reaction triggers (om.on)" if om else "Entity reaction triggers (set_trigger)"
+        header = "Entity reaction triggers (wyrd.on)" if om else "Entity reaction triggers (set_trigger)"
         parts.append(f"-- {header}")
         parts.extend(trigger_lines)
         parts.append("")

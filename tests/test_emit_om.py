@@ -49,8 +49,8 @@ def test_emits_proto_helper_and_edges():
     out = emit_lua_om(_tiny_floor(), source_path="floor.md")
     # the _proto helper is defined once, reading the kind:<name> registry
     assert "local function _proto(n, kind)" in out
-    assert 'engine.get_prop(om.object(), "kind:" .. kind)' in out
-    assert "om.set_prototype(n, k)" in out
+    assert 'engine.get_prop(wyrd.object(), "kind:" .. kind)' in out
+    assert "wyrd.set_prototype(n, k)" in out
     # each world entity gets a prototype edge from its kind
     assert '_proto(n_key, "item")' in out
     assert '_proto(n_grate, "scenery")' in out
@@ -108,7 +108,7 @@ def test_entity_triggers_lower_to_om_on():
     cell = make_entity("cell", "Cell", "room")
     out = emit_lua_om(make_floor([cell, npc], start_location="cell"))
     assert "engine.set_trigger" not in out          # not the graph path
-    assert 'om.on(n_oracle, "OnAnswer", function(ctx)' in out
+    assert 'wyrd.on(n_oracle, "OnAnswer", function(ctx)' in out
     assert "engine.output('hmm')" in out            # body preserved
     assert '_proto(n_oracle, "npc")' in out          # still placed structurally
 
@@ -141,8 +141,8 @@ def test_om_trigger_when_guard_and_multiple():
     )
     cell = make_entity("cell", "Cell", "room")
     out = emit_lua_om(make_floor([cell, npc], start_location="cell"))
-    assert 'om.on(n_warden, "OnEnter", function(ctx)' in out
-    assert 'om.on(n_warden, "OnTake", function(ctx)' in out
+    assert 'wyrd.on(n_warden, "OnEnter", function(ctx)' in out
+    assert 'wyrd.on(n_warden, "OnTake", function(ctx)' in out
     # the when-guard is emitted as an early-return (same form as graph mode)
     assert "then return end" in out
 
@@ -162,9 +162,9 @@ def test_interception_triggers_lower_to_before_self():
     )
     cell = make_entity("cell", "Cell", "room")
     out = emit_lua_om(make_floor([cell, box], start_location="cell"))
-    assert 'om.set_behaviour(n_chest, "take", "before", "self", function(ctx)' in out
-    assert 'om.set_behaviour(n_chest, "attack", "before", "self", function(ctx)' in out
-    assert "om.on(n_chest" not in out          # interception ≠ reaction
+    assert 'wyrd.set_behaviour(n_chest, "take", "before", "self", function(ctx)' in out
+    assert 'wyrd.set_behaviour(n_chest, "attack", "before", "self", function(ctx)' in out
+    assert "wyrd.on(n_chest" not in out          # interception ≠ reaction
     assert "ctx:veto('shut')" in out
 
 
@@ -188,7 +188,7 @@ def test_non_lua_trigger_body_warned_not_emitted():
                           script=Script(language="python", source="set_flag('x')"))],
     )
     out = emit_lua_om(make_floor([room], start_location="hall"))
-    assert "om.on(n_hall" not in out
+    assert "wyrd.on(n_hall" not in out
     assert "WARNING" in out
 
 
