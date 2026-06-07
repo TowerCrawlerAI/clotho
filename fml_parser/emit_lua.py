@@ -470,8 +470,14 @@ def emit_lua_graph(
                 continue
             # Directional exit: a per-room property the engine's `go` reads, so
             # "go north" / "go n" / bare "north" resolve to the destination.
-            canon = _DIR_CANON.get(str(direction).strip().lower())
-            if canon is not None:
+            # Directions are DATA-DRIVEN: a known alias folds to its canonical
+            # form (n→north); any other author-defined direction (forward /
+            # clockwise / rock / paper / scissors) passes through as exit_<name>.
+            # The engine resolves the standard set via its registry and falls
+            # back to a bare exit_<word> for the custom ones.
+            raw = str(direction).strip().lower()
+            canon = _DIR_CANON.get(raw, raw)
+            if _DIR_KEY_RE.fullmatch(canon):
                 exit_prop_lines.append(
                     f'engine.set_prop(n_{ent.id}, "exit_{canon}", n_{dest_slug})'
                 )
@@ -737,6 +743,12 @@ _DIR_CANON = {
     "southwest": "southwest", "sw": "southwest",
     "in": "in", "inside": "in", "out": "out", "outside": "out",
 }
+
+# A direction key must be a safe `exit_<name>` property-key suffix: lowercase
+# alphanumerics + underscore. Author-defined directions that aren't already a
+# known alias pass through as-is if they match; anything else (spaces, quotes)
+# is skipped for the exit_ property (the undirected `map` edge still connects).
+_DIR_KEY_RE = re.compile(r"[a-z0-9_]+")
 
 
 def _exit_dest_slug(dest: Any) -> str | None:

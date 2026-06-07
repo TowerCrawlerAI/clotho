@@ -346,6 +346,27 @@ def test_map_self_loop_and_duplicate_dropped():
     assert 'n_a, n_a' not in out                      # no self-loop
 
 
+def test_custom_directions_pass_through():
+    """Directions are data-driven: a known alias folds to canonical (ne→northeast),
+    and an author-defined direction (forward / widdershins) passes through as
+    exit_<name> so the engine resolves it. A non-identifier key is skipped for
+    the exit_ property (the map edge still connects)."""
+    hub = make_entity(
+        "hub", "Hub", "room",
+        properties={"exits": {
+            "ne": "annex",            # known alias → exit_northeast
+            "forward": "annex",       # custom direction → exit_forward
+            "widdershins": "annex",   # custom direction → exit_widdershins
+        }},
+    )
+    annex = make_entity("annex", "Annex", "room")
+    out = emit_lua_graph(make_floor([hub, annex]))
+    assert 'engine.set_prop(n_hub, "exit_northeast", n_annex)' in out
+    assert 'engine.set_prop(n_hub, "exit_forward", n_annex)' in out
+    assert 'engine.set_prop(n_hub, "exit_widdershins", n_annex)' in out
+    assert '"exit_ne"' not in out  # the alias was folded to northeast, not emitted raw
+
+
 def test_room_prose_emitted_as_function_and_markdown_stripped():
     """Entity prose lowers to engine.set_prose(node, function...) with Markdown
     links flattened to their text."""
