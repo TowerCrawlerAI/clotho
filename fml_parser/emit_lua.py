@@ -481,6 +481,15 @@ def emit_lua_graph(
                 exit_prop_lines.append(
                     f'engine.set_prop(n_{ent.id}, "exit_{canon}", n_{dest_slug})'
                 )
+                # A `{room, door}` exit also records the gating door per
+                # direction (exit_door_<canon>), which the engine surfaces to the
+                # go verb. Declared on each side's exit → two-way gating.
+                door_slug = _exit_door_slug(dest)
+                if (door_slug is not None and door_slug in world_ids
+                        and _DIR_KEY_RE.fullmatch(canon)):
+                    exit_prop_lines.append(
+                        f'engine.set_prop(n_{ent.id}, "exit_door_{canon}", n_{door_slug})'
+                    )
             # Undirected `map` edge (senses + adjacency + "go <room name>"),
             # one per unordered pair, no self-loops.
             if dest_slug == ent.id:
@@ -760,6 +769,15 @@ def _exit_dest_slug(dest: Any) -> str | None:
         room = dest.get("room")
         if isinstance(room, str):
             return room
+    return None
+
+
+def _exit_door_slug(dest: Any) -> str | None:
+    """The gating door slug of a `{room, door}` exit, or None for a plain exit."""
+    if isinstance(dest, dict):
+        door = dest.get("door")
+        if isinstance(door, str):
+            return door
     return None
 
 
