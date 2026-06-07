@@ -180,7 +180,8 @@ def _om_event_name(trigger_name: str) -> str:
     first letter of each upper-cased, prefixed with 'On'.
     """
     parts = trigger_name.split()
-    if not parts:
+    # empty, or a bare stage word with no event component → just "On"
+    if not parts or (len(parts) == 1 and parts[0].lower() in _TRIGGER_STAGE_WORDS):
         return "On"
     if len(parts) > 1 and parts[0].lower() in _TRIGGER_STAGE_WORDS:
         event_words = parts[1:]

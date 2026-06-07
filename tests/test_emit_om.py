@@ -121,6 +121,30 @@ def test_om_event_name_mapping():
     assert _om_event_name("On RoundStart") == "OnRoundStart"
     assert _om_event_name("InsteadOf Damaged") == "OnDamaged"
     assert _om_event_name("On Answer") == "OnAnswer"
+    assert _om_event_name("Look") == "OnLook"          # single non-stage word
+    assert _om_event_name("On") == "On"                # bare stage word, no event
+    assert _om_event_name("") == "On"                  # empty
+
+
+def test_om_trigger_when_guard_and_multiple():
+    # an om trigger with a `when:` guard emits the guard, and two triggers on
+    # one entity each emit their own om.on.
+    npc = make_entity(
+        "warden", "Warden", "npc",
+        properties={"location": "cell"},
+        triggers=[
+            Trigger(name="On Enter", when="flag(alarm)",
+                    script=Script(language="lua", source="engine.output('halt')")),
+            Trigger(name="On Take", script=Script(language="lua",
+                                                  source="engine.output('mine')")),
+        ],
+    )
+    cell = make_entity("cell", "Cell", "room")
+    out = emit_lua_om(make_floor([cell, npc], start_location="cell"))
+    assert 'om.on(n_warden, "OnEnter", function(ctx)' in out
+    assert 'om.on(n_warden, "OnTake", function(ctx)' in out
+    # the when-guard is emitted as an early-return (same form as graph mode)
+    assert "then return end" in out
 
 
 def test_non_lua_trigger_body_warned_not_emitted():
