@@ -367,6 +367,20 @@ def test_custom_directions_pass_through():
     assert '"exit_ne"' not in out  # the alias was folded to northeast, not emitted raw
 
 
+def test_door_exit_emits_exit_door_property():
+    """A `{room, door}` exit emits exit_<dir> = room AND exit_door_<dir> = door,
+    so the engine can gate the move; declared on each side → two-way gating."""
+    a = make_entity("a7", "A7", "room",
+                    properties={"exits": {"east": {"room": "crypt", "door": "stone_door"}}})
+    crypt = make_entity("crypt", "Crypt", "room",
+                        properties={"exits": {"west": {"room": "a7", "door": "stone_door"}}})
+    door = make_entity("stone_door", "Stone Door", "door")
+    out = emit_lua_graph(make_floor([a, crypt, door]))
+    assert 'engine.set_prop(n_a7, "exit_east", n_crypt)' in out
+    assert 'engine.set_prop(n_a7, "exit_door_east", n_stone_door)' in out
+    assert 'engine.set_prop(n_crypt, "exit_door_west", n_stone_door)' in out  # two-way
+
+
 def test_room_prose_emitted_as_function_and_markdown_stripped():
     """Entity prose lowers to engine.set_prose(node, function...) with Markdown
     links flattened to their text."""
