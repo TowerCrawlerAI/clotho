@@ -411,12 +411,19 @@ def emit_lua_graph(
         # property — drop it from the node's own bag.
         if om:
             scalar_props = {k: v for k, v in scalar_props.items() if k != "kind"}
-        if scalar_props:
-            prop_pairs = ", ".join(
-                f"{_lua_key(k)} = {_lua_value(v)}" for k, v in scalar_props.items()
-            )
+        pair_strs = [
+            f"{_lua_key(k)} = {_lua_value(v)}" for k, v in scalar_props.items()
+        ]
+        # Noun aliases: a list value (so _collect_scalar_props drops it) lowered
+        # to a single pipe-delimited lowercased string ("|cup|bone cup|") that the
+        # play-path's noun resolver matches, so "take cup" resolves the Bone Cup.
+        alias_blob = _alias_blob(ent)
+        if alias_blob is not None:
+            pair_strs.append(f"aliases = {_lua_string(alias_blob)}")
+        if pair_strs:
             parts.append(
-                f"local n_{ent.id} = engine.create_node({{ name = {_lua_string(ent.name)}, {prop_pairs} }})"
+                f"local n_{ent.id} = engine.create_node({{ name = {_lua_string(ent.name)}, "
+                f"{', '.join(pair_strs)} }})"
             )
         else:
             parts.append(
@@ -779,6 +786,23 @@ def _exit_door_slug(dest: Any) -> str | None:
         if isinstance(door, str):
             return door
     return None
+
+
+def _alias_blob(ent: FMLEntity) -> str | None:
+    """An entity's noun aliases as a pipe-delimited, lowercased, pipe-bracketed
+    string ("|cup|bone cup|") for the engine's noun resolver, or None if it has
+    no aliases. Pipe-bracketing lets the engine test "|<noun>|" for exact match."""
+    vals = ent.properties.get("aliases")
+    if isinstance(vals, str):
+        strs = [vals]
+    elif isinstance(vals, list):
+        strs = [a for a in vals if isinstance(a, str)]
+    else:
+        return None
+    cleaned = [a.strip().lower() for a in strs if a.strip()]
+    if not cleaned:
+        return None
+    return "|" + "|".join(cleaned) + "|"
 
 
 def _prose_function_literal(ent: FMLEntity) -> str | None:

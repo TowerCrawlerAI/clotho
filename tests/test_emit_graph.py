@@ -381,6 +381,15 @@ def test_door_exit_emits_exit_door_property():
     assert 'engine.set_prop(n_crypt, "exit_door_west", n_stone_door)' in out  # two-way
 
 
+def test_entity_aliases_lowered_as_pipe_blob():
+    """Noun aliases lower to a single pipe-delimited, lowercased, pipe-bracketed
+    string on the node, for the engine's alias-aware noun resolver."""
+    cup = make_entity("bone_cup", "Bone Cup", "item",
+                      properties={"aliases": ["cup", "Bone Cup", "vessel"]})
+    out = emit_lua_graph(make_floor([cup]))
+    assert 'aliases = "|cup|bone cup|vessel|"' in out
+
+
 def test_room_prose_emitted_as_function_and_markdown_stripped():
     """Entity prose lowers to engine.set_prose(node, function...) with Markdown
     links flattened to their text."""
