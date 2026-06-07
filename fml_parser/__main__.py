@@ -53,11 +53,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     ap.add_argument(
+        "--wyrd",
         "--om",
+        dest="om",
         action="store_true",
         default=False,
-        help="Emit object-model (prototype) LFR via emit_lua_om (for crawler --engine om). "
-        "Composes with 'lower' and --stdlib-module. Implies the graph binding surface.",
+        help="Emit wyrd (prototype object-model) LFR via emit_lua_om "
+        "(for the wyrd engine dispatch path). "
+        "Composes with 'lower' and --stdlib-module. Implies the graph binding surface. "
+        "The flag --om is a working alias for backwards compatibility.",
     )
 
     # Positional sub-command + source path.

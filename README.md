@@ -23,9 +23,21 @@ lua_source = emit_lua(floor)
 open("output.lua", "w").write(lua_source)
 ```
 
-Or via CLI (if/when a CLI is added — currently this is a library only):
+Or via CLI:
 ```bash
-python -m fml_parser path/to/index.md -o output.lua
+# Legacy flat LFR (entity-table format)
+python -m fml_parser lower path/to/index.md -o output.lua
+
+# Graph binding-surface LFR (engine.create_node / engine.relate)
+python -m fml_parser lower path/to/index.md --graph -o output.lua
+
+# Wyrd (prototype object-model) LFR — emits wyrd.* table calls
+python -m fml_parser lower path/to/index.md --wyrd -o output.lua
+# --om is a backwards-compatible alias for --wyrd (identical output):
+python -m fml_parser lower path/to/index.md --om -o output.lua
+
+# Stdlib verb-module
+python -m fml_parser --stdlib-module path/to/index.md -o stdlib.lua
 ```
 
 ## Architecture
