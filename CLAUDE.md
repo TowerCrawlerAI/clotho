@@ -1,8 +1,8 @@
 # fml-parser — CLAUDE.md
 
-Python tool that **lowers FML markdown → Luau LFR** — the format the engine (`crawler`) loads. Part of the
+Python tool that **lowers FML markdown → Luau LFR** — the format the engine (`wyrd`) loads. Part of the
 TowerCrawlerAI workspace; see the root `CLAUDE.md` for the multi-repo map + build/release pipeline, and
-`../engine-core/docs/design/ENGINE_MODEL.md` for the engine the output targets.
+`../wyrd/docs/design/ENGINE_MODEL.md` for the engine the output targets.
 
 ## What it does
 
@@ -31,7 +31,7 @@ LLMs in the build path.
 
 ## Output contracts (do not drift)
 
-- LFR + stdlib-verb-module shapes: `../engine-core/docs/design/ENGINE_MODEL.md` §9 (verbs as stored
+- LFR + stdlib-verb-module shapes: `../wyrd/docs/design/ENGINE_MODEL.md` §9 (verbs as stored
   procedures), §10 (built-in relations), §11 (binding surface); `CoreRequirements.md` #14 (verb-table shape).
 - **Determinism is load-bearing** (the skein/replay contract): no LLM, no `random`, stable ordering.
 
