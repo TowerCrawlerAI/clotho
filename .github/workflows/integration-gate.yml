@@ -58,9 +58,10 @@ jobs:
           fi
           echo "stdlib.lua OK ($(wc -l < stdlib.lua) lines)"
 
-      # 5. Lower sample-dungeon (floor LFR path).
+      # 5. Lower sample-dungeon (floor LFR path, object-model emitter — the one
+      #    the runtime actually loads; see wyrd/scripts/play-wyrd.sh).
       - name: Lower sample-dungeon/index.md → floor.lua
-        run: python -m fml_parser lower sample-dungeon/index.md -o floor.lua
+        run: python -m fml_parser lower sample-dungeon/index.md --om -o floor.lua
 
       - name: Assert floor.lua is non-empty
         run: |
