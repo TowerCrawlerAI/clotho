@@ -4,7 +4,7 @@ name: release
 # and publish a GitHub Release with the sdist + wheel attached.
 #
 # Consumers (stdlib / sample-dungeon lowering CI) pin to a released version via:
-#   pip install "fml_parser @ git+https://github.com/TowerCrawlerAI/fml-parser@v0.1.0"
+#   pip install "fml_parser @ git+https://github.com/TowerCrawlerAI/clotho@v0.1.0"
 # or by downloading the wheel asset from the Release.
 
 on:

@@ -54,7 +54,7 @@ python -m fml_parser --stdlib-module path/to/index.md -o stdlib.lua
 ## Companion repos
 
 Under `TowerCrawlerAI/`:
-- [`engine-core`](../engine-core) — C engine that consumes the LFR this parser emits
+- [`wyrd`](../wyrd) — C engine that consumes the LFR this parser emits
 - [`stdlib`](../stdlib) — FML stdlib that gets imported into floors
 - [`sample-dungeon`](../sample-dungeon) — Bone Garden test content
 - [`wiki`](../wiki) — `design/FML.md`, `design/LFR.md`, `design/PARSER.md` for the normative spec
