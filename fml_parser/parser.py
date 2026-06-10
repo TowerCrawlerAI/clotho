@@ -417,7 +417,7 @@ def _load_import(
     author convention of one file = one H1-top-entity, used throughout
     data/sample/ for modular entity files.
     """
-    resolved = _resolve_import_path(link_target, base_dir)
+    resolved, is_stdlib_import = _resolve_import_path(link_target, base_dir)
 
     if resolved in ctx.seen:
         # Already processed — no-op (the entities are already merged via the
@@ -446,10 +446,11 @@ def _load_import(
         sub_floor = _parse_with_imports(
             sub_text, resolved, ctx, is_entry_point=False
         )
-        # Determine whether this import is from the stdlib (path contains
-        # "stdlib/").  Stdlib-sourced entities are tracked for tree-shake
-        # purposes — they are pruneable catalog content unless referenced.
-        is_stdlib_import = "stdlib" in resolved.parts
+        # `is_stdlib_import` (from _resolve_import_path) marks imports of the
+        # named `stdlib` catalog.  Stdlib-sourced entities are tracked for
+        # tree-shake purposes — they are pruneable catalog content unless
+        # referenced.  Classification is by import NAME, not resolved path
+        # text, so an alternately-named checkout dir doesn't defeat it (#29).
 
         # Merge entities and understand_directives from the imported doc into
         # the parent floor. The imported doc's H1/intro prose/top-level
@@ -1696,17 +1697,31 @@ def _canonical_event_name(heading: str) -> str:
 # ─── Named-import resolution ──────────────────────────────────────────────────
 
 
+# The named import that carries pruneable stdlib catalog content. Tree-shake
+# classification keys on this NAME (which all of `_resolve_import_path`'s
+# branches know), never on the resolved path text — a stdlib checked out into a
+# differently-named directory (e.g. `_stdlib/` via FML_STDLIB_PATH) must still be
+# classified as stdlib. See issue #29.
+_STDLIB_IMPORT_NAME = "stdlib"
+
 _NAMED_IMPORTS: dict[str, str] = {
     # Convention: `[stdlib](stdlib)` from anywhere in the project resolves to
     # this canonical entry point, which re-exports the default rule system.
-    "stdlib": "data/stdlib/index.md",
+    _STDLIB_IMPORT_NAME: "data/stdlib/index.md",
 }
 
 _PROJECT_ROOT_MARKERS: tuple[str, ...] = ("pyproject.toml", ".git", "CLAUDE.md")
 
 
-def _resolve_import_path(link_target: str, base_dir: Path) -> Path:
+def _resolve_import_path(link_target: str, base_dir: Path) -> tuple[Path, bool]:
     """Resolve an import link target to an absolute filesystem path.
+
+    Returns ``(resolved_path, is_stdlib)``. ``is_stdlib`` is True when the
+    target is the named ``stdlib`` catalog import — decided by the import NAME,
+    not by the resolved path text, so a stdlib checked out into a
+    differently-named directory (e.g. ``_stdlib/`` via ``FML_STDLIB_PATH``) is
+    still classified as stdlib for tree-shaking (issue #29). All three named
+    branches below know the name they are resolving, so they carry the flag.
 
     Resolution order for named imports (e.g. ``[stdlib](stdlib)``):
 
@@ -1727,22 +1742,23 @@ def _resolve_import_path(link_target: str, base_dir: Path) -> Path:
     import os
 
     if "/" not in link_target and "." not in link_target:
+        is_stdlib = link_target == _STDLIB_IMPORT_NAME
         env_key = f"FML_{link_target.upper()}_PATH"
         env_override = os.environ.get(env_key)
         if env_override:
-            return Path(env_override).resolve()
+            return Path(env_override).resolve(), is_stdlib
 
         project_root = _find_project_root(base_dir)
         if project_root is not None:
             sibling = project_root.parent / link_target / "index.md"
             if sibling.exists():
-                return sibling.resolve()
+                return sibling.resolve(), is_stdlib
 
             named = _NAMED_IMPORTS.get(link_target)
             if named is not None:
-                return (project_root / named).resolve()
+                return (project_root / named).resolve(), is_stdlib
 
-    return (base_dir / link_target).resolve()
+    return (base_dir / link_target).resolve(), False
 
 
 def _find_project_root(start: Path) -> Path | None:
