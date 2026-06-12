@@ -69,11 +69,16 @@ def test_drops_string_kind_property():
     assert 'type = "knowledge"' in out  # other props survive
 
 
-def test_synthesized_player_gets_actor_prototype():
+def test_no_player_entity_emits_start_location_not_a_standin():
+    # Full dynamic-loading (engine #102): a floor with a start_location but no
+    # PC declares the start ROOM and pre-seeds NO actor. The old behaviour
+    # synthesized a "you" player node, which lingered as an unmanned standin in
+    # multiplayer — that must NOT be emitted anymore.
     out = emit_lua_om(_tiny_floor())
-    assert 'local n__player = engine.create_node({ name = "you" })' in out
-    assert '_proto(n__player, "actor")' in out
-    assert "engine.set_start_actor(n__player)" in out
+    assert "engine.set_start_location(n_cell)" in out
+    assert "set_start_actor" not in out
+    assert 'name = "you"' not in out
+    assert "n__player" not in out
 
 
 # ─── verbs are grammar-only; behaviours skipped ──────────────────────────────

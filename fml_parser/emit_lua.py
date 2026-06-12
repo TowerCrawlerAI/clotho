@@ -711,10 +711,10 @@ def emit_lua_graph(
         if start_id is not None:
             parts.append(f"engine.set_start_actor(n_{start_id})")
         else:
-            # (c) No player entity exists (the legacy host synthesized one). If
-            # the floor names a `start_location`/`start` ROOM, synthesize a
-            # player node there and make it the start actor — graph mode has no
-            # player bootstrap, so the floor LFR must create the actor.
+            # (c) No player entity exists. Full dynamic-loading (engine #102):
+            # declare the floor's start ROOM and pre-seed NO actor — every
+            # player is spawned at runtime (Loom's spawn_actor / the engine's
+            # local-play bootstrap), so the floor seeds no unmanned standin.
             start_room = None
             for prop_key in ("start_location", "start", "start_room"):
                 val = floor.properties.get(prop_key)
@@ -722,12 +722,7 @@ def emit_lua_graph(
                     start_room = val
                     break
             if start_room is not None:
-                parts.append("-- Synthesized player (no player entity in source)")
-                parts.append('local n__player = engine.create_node({ name = "you" })')
-                if om:
-                    parts.append('_proto(n__player, "actor")')
-                parts.append(f'engine.relate("in", n__player, n_{start_room})')
-                parts.append("engine.set_start_actor(n__player)")
+                parts.append(f"engine.set_start_location(n_{start_room})")
             else:
                 parts.append(
                     "-- engine.set_start_actor: no player/start entity determined; set manually"

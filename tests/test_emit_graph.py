@@ -326,14 +326,17 @@ def test_at_location_containment():
     assert 'engine.relate("in", n_coin, n_hall)' in out
 
 
-def test_player_synthesis_from_start_location():
-    """No player entity + a start_location room → synthesize a player there."""
+def test_start_location_without_player_emits_no_standin():
+    """No player entity + a start_location room → declare the start ROOM and
+    pre-seed NO actor (full dynamic-loading, engine #102). The old behaviour
+    synthesized a "you" player that lingered unmanned in multiplayer."""
     room = make_entity("entry", "Entry", "room")
     floor = make_floor([room], start_location="entry")
     out = emit_lua_graph(floor)
-    assert 'local n__player = engine.create_node({ name = "you" })' in out
-    assert 'engine.relate("in", n__player, n_entry)' in out
-    assert "engine.set_start_actor(n__player)" in out
+    assert "engine.set_start_location(n_entry)" in out
+    assert "n__player" not in out
+    assert "set_start_actor" not in out
+    assert 'name = "you"' not in out
 
 
 def test_map_self_loop_and_duplicate_dropped():
