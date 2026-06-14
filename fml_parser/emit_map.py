@@ -858,8 +858,10 @@ def emit_map(
 
     # ── Build connections ─────────────────────────────────────────────────────
     connections: list[dict[str, Any]] = []
-    # Track which (from, dir) pairs we've emitted to avoid duplicates.
-    # Also track reverse edges so we don't double-emit bidirectional pairs.
+    # Track which (from, dir) pairs we've emitted to avoid duplicates within
+    # the same room+direction.  We do NOT suppress a reverse exit — each room's
+    # outbound exits are emitted independently so the VTT can drive movement in
+    # both directions.
     emitted: set[tuple[str, str]] = set()
 
     # Iterate sorted: from_id, then dir_name (§3 step 7).
@@ -893,6 +895,9 @@ def emit_map(
             to_unit = all_unit_pos.get(to_id)
 
             # Check if the reverse exit exists (bidirectional).
+            # We do NOT suppress the reverse exit here — it will be emitted when
+            # we iterate over to_id's exits.  one_way is false only when the
+            # reverse exit actually points back to from_id.
             reverse_exits = _room_exits(to_entity)
             opposite_dir = _OPPOSITE.get(dir_name)
             reverse_target_id = None
@@ -900,8 +905,6 @@ def emit_map(
                 rev_target, _ = _exit_target_and_door(reverse_exits[opposite_dir])
                 if rev_target == from_id:
                     reverse_target_id = from_id
-                    # Mark the reverse as emitted to avoid double-emitting.
-                    emitted.add((to_id, opposite_dir))
 
             is_one_way = (reverse_target_id is None)
 

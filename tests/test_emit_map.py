@@ -254,23 +254,27 @@ def test_m3_up_down_exits_become_stairs():
     stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
     assert len(stairs) >= 1, "Expected at least one stairs connection"
 
-    # Find the bidirectional upper↔lower stairs.
-    link = next(
-        (c for c in stairs if
-         (c["from"] == "upper" and c["to"] == "lower") or
-         (c["from"] == "lower" and c["to"] == "upper")),
-        None,
+    # Each room emits its own outbound exit so both directions appear.
+    # Assert both upper→lower and lower→upper are present.
+    upper_down = next(
+        (c for c in stairs if c["from"] == "upper" and c["to"] == "lower"), None
     )
-    assert link is not None, "Expected a stairs connection between upper and lower"
-    assert link["one_way"] is False, "Bidirectional up/down link should be one_way: false"
-    assert link["path"] == [], "stairs connections have no path"
+    lower_up = next(
+        (c for c in stairs if c["from"] == "lower" and c["to"] == "upper"), None
+    )
+    assert upper_down is not None, "Expected upper→lower stairs connection"
+    assert lower_up is not None, "Expected lower→upper stairs connection"
+    assert upper_down["one_way"] is False, "Bidirectional up/down link should be one_way: false"
+    assert lower_up["one_way"] is False, "Bidirectional up/down link should be one_way: false"
+    assert upper_down["path"] == [], "stairs connections have no path"
+    assert lower_up["path"] == [], "stairs connections have no path"
 
 
 def test_m3_cross_level_cardinal_becomes_warp():
     """A cardinal exit crossing a level boundary lowers as warp, not corridor.
 
-    The dedup logic means the connection may appear as (surface→deeper) or
-    (deeper→surface); search by room pair not by specific from/to order.
+    Both directions are emitted (each room's own outbound exit); check that
+    all connections between the pair are warp.
     """
     surface = _make_room("surface", "Surface", {"east": "deeper"}, level=0)
     deeper = _make_room("deeper", "Deeper", {"west": "surface"}, level=-1)
@@ -412,8 +416,8 @@ def test_m5_multi_level_floor():
     stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
     assert len(stairs) >= 1, "Must have stairs between levels"
 
-    # The bidirectional up/down pair produces one connection (one_way: false)
-    # because both rooms have the reciprocal exit.
+    # Both directions are emitted (each room's outbound exit).
+    # Assert at least one direction is present (throne↔vault).
     link = next(
         (c for c in stairs if
          {c["from"], c["to"]} == {"throne", "vault"}),
@@ -508,7 +512,8 @@ def test_m3_different_level_up_down_is_stairs():
     """M3 confirmation: up/down between DIFFERENT-LEVEL rooms must be stairs.
 
     This is the expected case: ossuary (level 0) down→catacombs (level -1)
-    is a staircase, not a warp.
+    is a staircase, not a warp.  Both directions are emitted independently
+    (each room's outbound exit) so there are exactly 2 stairs connections.
     """
     ossuary = _make_room("ossuary", "Ossuary", {"down": "catacombs"}, level=0)
     catacombs = _make_room("catacombs", "Catacombs", {"up": "ossuary"}, level=-1)
@@ -516,15 +521,22 @@ def test_m3_different_level_up_down_is_stairs():
     data = _emit_map_for(f)
 
     stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
-    assert len(stairs) == 1, (
-        f"Expected exactly 1 stairs connection between different-level rooms; got {stairs}"
+    assert len(stairs) == 2, (
+        f"Expected exactly 2 stairs connections (one per direction); got {stairs}"
     )
-    link = stairs[0]
-    assert {link["from"], link["to"]} == {"ossuary", "catacombs"}, (
-        f"Stairs must link ossuary↔catacombs, got {link}"
+    # Both directions must be present.
+    ossuary_down = next(
+        (c for c in stairs if c["from"] == "ossuary" and c["to"] == "catacombs"), None
     )
-    assert link["one_way"] is False, "Bidirectional up/down stairs must be one_way: false"
-    assert link["path"] == [], "Stairs connections must have empty path"
+    catacombs_up = next(
+        (c for c in stairs if c["from"] == "catacombs" and c["to"] == "ossuary"), None
+    )
+    assert ossuary_down is not None, "ossuary→catacombs stairs must exist"
+    assert catacombs_up is not None, "catacombs→ossuary stairs must exist"
+    assert ossuary_down["one_way"] is False, "Bidirectional up/down stairs must be one_way: false"
+    assert catacombs_up["one_way"] is False, "Bidirectional up/down stairs must be one_way: false"
+    assert ossuary_down["path"] == [], "Stairs connections must have empty path"
+    assert catacombs_up["path"] == [], "Stairs connections must have empty path"
 
 
 def test_m5_nongeometric_direction_is_warp():
@@ -548,6 +560,37 @@ def test_m5_nongeometric_direction_is_warp():
     )
     if out_conn:
         assert out_conn["kind"] == "warp", "non-geometric 'out' direction must be warp"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M5 — Reciprocal (bidirectional) connections
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_m5_reciprocal_connections_both_emitted():
+    """A reciprocal pair A –east→ B / B –west→ A must produce TWO connections.
+
+    The VTT needs each room's own outbound exit in map.json so it can drive
+    movement in either direction (drag-to-move, table_move adjacency check,
+    connection arrows).  The old dedup suppressed one direction; this test pins
+    the fix.
+    """
+    room_a = _make_room("room_a", "Room A", {"east": "room_b"})
+    room_b = _make_room("room_b", "Room B", {"west": "room_a"})
+    f = _make_floor(room_a, room_b, start="room_a")
+    data = _emit_map_for(f)
+
+    conns_by = {(c["from"], c["dir"], c["to"]): c for c in data["connections"]}
+
+    a_east = conns_by.get(("room_a", "east", "room_b"))
+    b_west = conns_by.get(("room_b", "west", "room_a"))
+
+    assert a_east is not None, "room_a –east→ room_b must be present"
+    assert b_west is not None, "room_b –west→ room_a must be present"
+
+    # Both are bidirectional (one_way: false) because the reverse exit exists.
+    assert a_east["one_way"] is False, "room_a –east→ room_b must be one_way: false"
+    assert b_west["one_way"] is False, "room_b –west→ room_a must be one_way: false"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -717,22 +760,29 @@ def test_m6_no_negative_coordinates():
 
 
 def test_m6_ossuary_catacombs_stairs():
-    """The ossuary↔catacombs up/down link must lower as stairs (not corridor/warp)."""
+    """The ossuary↔catacombs up/down link must lower as stairs (not corridor/warp).
+
+    Both directions are emitted (each room's own outbound exit), so there are
+    exactly 2 stairs connections for this pair.
+    """
     data = _generate_bone_garden_map()
 
-    # One of the two directions (ossuary→catacombs down or catacombs→ossuary up)
-    # must be the canonical stairs connection.  The bidirectional dedup means
-    # only one is emitted; it must be stairs with one_way: false.
     stairs = [
         c for c in data["connections"]
         if c["kind"] == "stairs"
         and {c["from"], c["to"]} == {"ossuary", "catacombs"}
     ]
-    assert len(stairs) == 1, \
-        f"Expected exactly one stairs connection between ossuary and catacombs, got {stairs}"
-    assert stairs[0]["one_way"] is False, \
-        "ossuary↔catacombs stairs must be bidirectional (one_way: false)"
-    assert stairs[0]["path"] == [], "stairs connections have no path"
+    assert len(stairs) == 2, \
+        f"Expected exactly 2 stairs connections (one per direction) between ossuary and catacombs, got {stairs}"
+    for s in stairs:
+        assert s["one_way"] is False, \
+            f"ossuary↔catacombs stairs must be bidirectional (one_way: false), got {s}"
+        assert s["path"] == [], "stairs connections have no path"
+    # Assert both directions specifically present.
+    assert any(s["from"] == "ossuary" and s["to"] == "catacombs" for s in stairs), \
+        "ossuary→catacombs direction must be present"
+    assert any(s["from"] == "catacombs" and s["to"] == "ossuary" for s in stairs), \
+        "catacombs→ossuary direction must be present"
 
 
 def test_m6_tunnel_crypt_warp_with_door():
@@ -778,8 +828,10 @@ def test_m6_schema_fields_present():
 
 
 def test_m6_stairs_exactly_one_ossuary_catacombs():
-    """M6 §7: the real Bone Garden fixture must have EXACTLY one stairs
-    connection, and it must be the ossuary↔catacombs link.
+    """M6 §7: the real Bone Garden fixture's ONLY stairs link is ossuary↔catacombs.
+
+    Both directions are emitted (each room's own outbound exit), so there are
+    exactly 2 stairs connections (ossuary→catacombs and catacombs→ossuary).
 
     The Twisting Tunnels use up/down as same-level maze exits (both rooms on
     level -1).  They must lower as warp, not stairs.  This test pins the
@@ -788,15 +840,15 @@ def test_m6_stairs_exactly_one_ossuary_catacombs():
     """
     data = _generate_bone_garden_map()
     all_stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
-    assert len(all_stairs) == 1, (
+    assert len(all_stairs) == 2, (
         f"MAP_FORMAT §7 states ossuary↔catacombs is the floor's ONLY up/down link; "
-        f"expected exactly 1 stairs connection, got {len(all_stairs)}: "
+        f"expected exactly 2 stairs connections (one per direction), got {len(all_stairs)}: "
         f"{[(c['from'], c['dir'], c['to']) for c in all_stairs]}"
     )
-    s = all_stairs[0]
-    assert {s["from"], s["to"]} == {"ossuary", "catacombs"}, (
-        f"The single stairs connection must be ossuary↔catacombs, got {s}"
-    )
+    for s in all_stairs:
+        assert {s["from"], s["to"]} == {"ossuary", "catacombs"}, (
+            f"All stairs connections must be ossuary↔catacombs, got {s}"
+        )
 
 
 def test_m6_tunnel_updown_catacombs_are_warp():
