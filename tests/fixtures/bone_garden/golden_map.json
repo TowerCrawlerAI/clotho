@@ -290,6 +290,42 @@
       "path": []
     },
     {
+      "from": "garden",
+      "dir": "north",
+      "to": "entry",
+      "kind": "implicit",
+      "door": null,
+      "one_way": false,
+      "path": []
+    },
+    {
+      "from": "hall_of_skulls",
+      "dir": "south",
+      "to": "entry",
+      "kind": "implicit",
+      "door": null,
+      "one_way": false,
+      "path": []
+    },
+    {
+      "from": "ossuary",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "stairs",
+      "door": null,
+      "one_way": false,
+      "path": []
+    },
+    {
+      "from": "ossuary",
+      "dir": "east",
+      "to": "entry",
+      "kind": "implicit",
+      "door": null,
+      "one_way": false,
+      "path": []
+    },
+    {
       "from": "twisting_tunnel_a1",
       "dir": "down",
       "to": "catacombs",
@@ -314,6 +350,15 @@
       "kind": "warp",
       "door": null,
       "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a1",
+      "dir": "south",
+      "to": "catacombs",
+      "kind": "implicit",
+      "door": null,
+      "one_way": false,
       "path": []
     },
     {
