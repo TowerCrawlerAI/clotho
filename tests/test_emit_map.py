@@ -210,7 +210,10 @@ def test_m2_determinism_simple():
 def test_m2_determinism_bone_garden():
     """Bone Garden vendored fixture: lower twice, assert byte-identical output."""
     floor = _parse_fixture(BONE_GARDEN_DIR / "index.md")
-    lua = emit_lua_om(floor, source_path=str(BONE_GARDEN_DIR / "index.md"))
+    # Stable RELATIVE source_path: the floor.lua header (and thus floor_sha)
+    # must not depend on the absolute checkout location, or the golden diverges
+    # between a dev machine and CI. See CLAUDE.md "bit-identical lowering".
+    lua = emit_lua_om(floor, source_path="bone_garden/index.md")
     lua_bytes = lua.encode("utf-8")
 
     out1 = emit_map_json(floor, lua_bytes)
@@ -636,7 +639,10 @@ def _load_golden() -> dict:
 
 def _generate_bone_garden_map() -> dict:
     floor = _parse_fixture(BONE_GARDEN_DIR / "index.md")
-    lua = emit_lua_om(floor, source_path=str(BONE_GARDEN_DIR / "index.md"))
+    # Stable RELATIVE source_path: the floor.lua header (and thus floor_sha)
+    # must not depend on the absolute checkout location, or the golden diverges
+    # between a dev machine and CI. See CLAUDE.md "bit-identical lowering".
+    lua = emit_lua_om(floor, source_path="bone_garden/index.md")
     return emit_map(floor, lua.encode("utf-8"))
 
 
@@ -645,7 +651,10 @@ def test_m6_golden_byte_equality():
     map.json, and byte-equal to the checked-in golden fixture.
     """
     floor = _parse_fixture(BONE_GARDEN_DIR / "index.md")
-    lua = emit_lua_om(floor, source_path=str(BONE_GARDEN_DIR / "index.md"))
+    # Stable RELATIVE source_path: the floor.lua header (and thus floor_sha)
+    # must not depend on the absolute checkout location, or the golden diverges
+    # between a dev machine and CI. See CLAUDE.md "bit-identical lowering".
+    lua = emit_lua_om(floor, source_path="bone_garden/index.md")
     lua_bytes = lua.encode("utf-8")
 
     # Two runs must produce the same output.
