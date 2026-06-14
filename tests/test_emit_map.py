@@ -455,6 +455,75 @@ def test_m5_pinned_room():
     assert data["rooms"]["shrine"]["rect"]["y"] == 10
 
 
+def test_m3_same_level_up_down_is_warp_not_stairs():
+    """M3 regression: up/down between two SAME-LEVEL rooms must lower as warp,
+    not stairs.
+
+    The Bone Garden's Twisting Tunnels use up/down as maze exits back to the
+    same-level catacombs room (both are level -1).  Before the fix, every
+    up/down exit was unconditionally classified as stairs, producing 15 phantom
+    stair connections in a flat maze.
+
+    Per MAP_FORMAT §3 step 1 and §7, stairs are plane-changes only.
+    """
+    # Same-level up/down: should produce WARP, not stairs.
+    maze_a = _make_room("maze_a", "Maze A", {"up": "hub", "down": "hub", "east": "maze_b"}, level=-1)
+    maze_b = _make_room("maze_b", "Maze B", {"west": "maze_a", "up": "hub", "down": "hub"}, level=-1)
+    hub = _make_room("hub", "Hub", {}, level=-1)
+    f = _make_floor(maze_a, maze_b, hub, start="hub")
+    data = _emit_map_for(f)
+
+    # No stairs at all: all rooms are on the same level.
+    stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
+    assert stairs == [], (
+        f"Same-level up/down exits must NOT produce stairs; got {stairs}"
+    )
+
+    # The up/down exits from maze_a must be warp.
+    up_conn = next(
+        (c for c in data["connections"]
+         if c["from"] == "maze_a" and c["dir"] == "up"),
+        None,
+    )
+    assert up_conn is not None, "maze_a up→hub connection must be present"
+    assert up_conn["kind"] == "warp", (
+        f"Same-level 'up' exit must be warp, got {up_conn['kind']}"
+    )
+
+    down_conn = next(
+        (c for c in data["connections"]
+         if c["from"] == "maze_a" and c["dir"] == "down"),
+        None,
+    )
+    assert down_conn is not None, "maze_a down→hub connection must be present"
+    assert down_conn["kind"] == "warp", (
+        f"Same-level 'down' exit must be warp, got {down_conn['kind']}"
+    )
+
+
+def test_m3_different_level_up_down_is_stairs():
+    """M3 confirmation: up/down between DIFFERENT-LEVEL rooms must be stairs.
+
+    This is the expected case: ossuary (level 0) down→catacombs (level -1)
+    is a staircase, not a warp.
+    """
+    ossuary = _make_room("ossuary", "Ossuary", {"down": "catacombs"}, level=0)
+    catacombs = _make_room("catacombs", "Catacombs", {"up": "ossuary"}, level=-1)
+    f = _make_floor(ossuary, catacombs, start="ossuary")
+    data = _emit_map_for(f)
+
+    stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
+    assert len(stairs) == 1, (
+        f"Expected exactly 1 stairs connection between different-level rooms; got {stairs}"
+    )
+    link = stairs[0]
+    assert {link["from"], link["to"]} == {"ossuary", "catacombs"}, (
+        f"Stairs must link ossuary↔catacombs, got {link}"
+    )
+    assert link["one_way"] is False, "Bidirectional up/down stairs must be one_way: false"
+    assert link["path"] == [], "Stairs connections must have empty path"
+
+
 def test_m5_nongeometric_direction_is_warp():
     """Non-geometric directions (in, out, author-invented) lower as warp."""
     cave = _make_room("cave", "Cave", {"in": "inner", "out": "field"})
@@ -697,6 +766,85 @@ def test_m6_schema_fields_present():
     assert "hidden" in data["layers"]
     assert data["layers"]["hidden"] == []
     assert isinstance(data["tokens"]["art"], dict)
+
+
+def test_m6_stairs_exactly_one_ossuary_catacombs():
+    """M6 §7: the real Bone Garden fixture must have EXACTLY one stairs
+    connection, and it must be the ossuary↔catacombs link.
+
+    The Twisting Tunnels use up/down as same-level maze exits (both rooms on
+    level -1).  They must lower as warp, not stairs.  This test pins the
+    regression introduced when _classify_connection unconditionally returned
+    stairs for any up/down exit, producing 15 phantom stairs.
+    """
+    data = _generate_bone_garden_map()
+    all_stairs = [c for c in data["connections"] if c["kind"] == "stairs"]
+    assert len(all_stairs) == 1, (
+        f"MAP_FORMAT §7 states ossuary↔catacombs is the floor's ONLY up/down link; "
+        f"expected exactly 1 stairs connection, got {len(all_stairs)}: "
+        f"{[(c['from'], c['dir'], c['to']) for c in all_stairs]}"
+    )
+    s = all_stairs[0]
+    assert {s["from"], s["to"]} == {"ossuary", "catacombs"}, (
+        f"The single stairs connection must be ossuary↔catacombs, got {s}"
+    )
+
+
+def test_m6_tunnel_updown_catacombs_are_warp():
+    """M6: All twisting-tunnel up/down→catacombs connections must be warp
+    (same-level exits, not stairs).
+
+    The fixture now faithfully includes the up/down exits on all 7 tunnel
+    rooms (twisting_tunnel_a1 … a7).  With the bug fixed, every one lowers
+    as warp because the tunnel and catacombs are both on level -1.
+    """
+    data = _generate_bone_garden_map()
+
+    tunnel_updown = [
+        c for c in data["connections"]
+        if c["from"].startswith("twisting_tunnel_")
+        and c["dir"] in ("up", "down")
+    ]
+    # 7 rooms × 2 directions = 14 up/down connections from tunnel rooms.
+    assert len(tunnel_updown) == 14, (
+        f"Expected 14 tunnel up/down connections (7 rooms × up + down), "
+        f"got {len(tunnel_updown)}: {[(c['from'], c['dir']) for c in tunnel_updown]}"
+    )
+    non_warp = [c for c in tunnel_updown if c["kind"] != "warp"]
+    assert non_warp == [], (
+        f"Same-level tunnel up/down exits must ALL be warp; "
+        f"non-warp: {[(c['from'], c['dir'], c['kind']) for c in non_warp]}"
+    )
+
+
+def test_m6_tunnel_crypt_warp_with_door_and_three_levels():
+    """M6: twisting_tunnel_a7 east→crypt is warp+door; floor has exactly 3 levels."""
+    data = _generate_bone_garden_map()
+
+    # Three levels: 0, -1, -2.
+    level_nums = sorted([l["level"] for l in data["levels"]], reverse=True)
+    assert level_nums == [0, -1, -2], (
+        f"Expected exactly 3 levels [0, -1, -2], got {level_nums}"
+    )
+
+    # tunnel_a7 east → crypt: cross-level warp with stone_door.
+    conn = next(
+        (c for c in data["connections"]
+         if c["from"] == "twisting_tunnel_a7"
+         and c["to"] == "crypt"
+         and c["dir"] == "east"),
+        None,
+    )
+    assert conn is not None, "twisting_tunnel_a7 east→crypt connection must exist"
+    assert conn["kind"] == "warp", (
+        f"Cross-level tunnel_a7→crypt must be warp, got {conn['kind']}"
+    )
+    assert conn["door"] == "stone_door", (
+        f"tunnel_a7→crypt must carry door: stone_door, got {conn['door']}"
+    )
+    assert conn["one_way"] is True, (
+        "tunnel_a7→crypt is one-way (crypt exits south, not east back to tunnel)"
+    )
 
 
 def test_m4_map_key_stripped_from_om_lua_output():

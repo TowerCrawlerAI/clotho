@@ -1,7 +1,7 @@
 {
   "map_version": 1,
   "floor": "the_bone_garden",
-  "floor_sha": "b81695437b3d724e8558da116beecd0f0be671a5a57e877997f950ff32ae0e7b",
+  "floor_sha": "0f7530ff72f8e82f68b0e703ab302259f0d4a4f59ee9e5cc53f021860aaeced1",
   "generator": "clotho 0.1.0",
   "grid": {
     "type": "square",
@@ -291,8 +291,62 @@
     },
     {
       "from": "twisting_tunnel_a1",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a1",
+      "dir": "east",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a1",
       "dir": "north",
       "to": "twisting_tunnel_a2",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a1",
+      "dir": "up",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a1",
+      "dir": "west",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a2",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a2",
+      "dir": "east",
+      "to": "catacombs",
       "kind": "warp",
       "door": null,
       "one_way": true,
@@ -317,6 +371,42 @@
       "path": []
     },
     {
+      "from": "twisting_tunnel_a2",
+      "dir": "up",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a2",
+      "dir": "west",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a3",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a3",
+      "dir": "east",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
       "from": "twisting_tunnel_a3",
       "dir": "north",
       "to": "catacombs",
@@ -335,8 +425,62 @@
       "path": []
     },
     {
+      "from": "twisting_tunnel_a3",
+      "dir": "up",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a3",
+      "dir": "west",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a4",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a4",
+      "dir": "east",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
       "from": "twisting_tunnel_a4",
       "dir": "north",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a4",
+      "dir": "south",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a4",
+      "dir": "up",
       "to": "catacombs",
       "kind": "warp",
       "door": null,
@@ -354,8 +498,44 @@
     },
     {
       "from": "twisting_tunnel_a5",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a5",
       "dir": "east",
       "to": "twisting_tunnel_a6",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a5",
+      "dir": "north",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a5",
+      "dir": "south",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a5",
+      "dir": "up",
+      "to": "catacombs",
       "kind": "warp",
       "door": null,
       "one_way": true,
@@ -372,7 +552,43 @@
     },
     {
       "from": "twisting_tunnel_a6",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a6",
       "dir": "east",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a6",
+      "dir": "north",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a6",
+      "dir": "south",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a6",
+      "dir": "up",
       "to": "catacombs",
       "kind": "warp",
       "door": null,
@@ -390,10 +606,46 @@
     },
     {
       "from": "twisting_tunnel_a7",
+      "dir": "down",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a7",
       "dir": "east",
       "to": "crypt",
       "kind": "warp",
       "door": "stone_door",
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a7",
+      "dir": "north",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a7",
+      "dir": "south",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
+      "one_way": true,
+      "path": []
+    },
+    {
+      "from": "twisting_tunnel_a7",
+      "dir": "up",
+      "to": "catacombs",
+      "kind": "warp",
+      "door": null,
       "one_way": true,
       "path": []
     },

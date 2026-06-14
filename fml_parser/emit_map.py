@@ -498,13 +498,28 @@ def _classify_connection(
     is_one_way: bool,
 ) -> dict[str, Any]:
     """Return a connection record (without path; path filled in later)."""
-    # Vertical links (up/down) → stairs (§3 step 1).
+    # Vertical links (up/down): stairs only when the rooms are on different
+    # levels (MAP_FORMAT §3 step 1, §7).  Same-level up/down exits are
+    # non-geometric maze inputs (e.g. the Bone Garden's Twisting Tunnels
+    # all use up/down → catacombs on the same level -1 plane) and must
+    # lower as warp, not stairs.
     if dir_name in _VERTICAL_DIRS:
+        if from_level != to_level:
+            return {
+                "from": from_id,
+                "dir": dir_name,
+                "to": to_id,
+                "kind": "stairs",
+                "door": door_id,
+                "one_way": is_one_way,
+                "path": [],
+            }
+        # Same level: treat like any other non-geometric direction → warp.
         return {
             "from": from_id,
             "dir": dir_name,
             "to": to_id,
-            "kind": "stairs",
+            "kind": "warp",
             "door": door_id,
             "one_way": is_one_way,
             "path": [],
