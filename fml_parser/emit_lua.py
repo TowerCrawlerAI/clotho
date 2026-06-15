@@ -456,11 +456,23 @@ def emit_lua_graph(
         # Containment: at_location / location property → relate("in", ...).
         # (FML uses `at_location` for items in a room; `location` is the older
         # form. First match wins.)
+        # §22 Phase 5: an optional `position: [x, y, z]` rides the location link
+        # as the engine's integer cell payload (#104). Validate it up-front so a
+        # malformed position is always reported — even on an entity with no
+        # recognized container (where the position requires `location`/
+        # `at_location` and is otherwise a no-op).
+        cell = _parse_cell(ent.properties.get("position"), ent.id)
         container = ent.properties.get("at_location") or ent.properties.get("location")
         if isinstance(container, str) and container in world_ids:
-            relation_lines.append(
-                f'engine.relate("in", n_{ent.id}, n_{container})'
-            )
+            if cell is not None:
+                x, y, z = cell
+                relation_lines.append(
+                    f'engine.relate("in", n_{ent.id}, n_{container}, {x}, {y}, {z})'
+                )
+            else:
+                relation_lines.append(
+                    f'engine.relate("in", n_{ent.id}, n_{container})'
+                )
 
     # Exits → 'map' edges. The relation is symmetric, so emit each unordered
     # room pair once and skip self-loops (avoids duplicate/degenerate edges from
@@ -516,6 +528,26 @@ def emit_lua_graph(
     if exit_prop_lines:
         parts.append("-- Directional exits (exit_<dir> = destination node)")
         parts.extend(exit_prop_lines)
+        parts.append("")
+
+    # 5a2. Cell occupancy / blocking layer (§22 Phase 5, #108) ----------------
+    # A container's `blocked:` list lowers to engine.set_blocked calls. Default
+    # kind is a solid wall (blocks move + sight); `[x,y,z,move|sight]` narrows it.
+    blocked_lines: list[str] = []
+    for ent in world_entities:
+        blocked = ent.properties.get("blocked")
+        if blocked is None:
+            continue
+        for (x, y, z, flags) in _parse_blocked_cells(blocked, ent.id):
+            if flags == 3:
+                blocked_lines.append(f"engine.set_blocked(n_{ent.id}, {x}, {y}, {z})")
+            else:
+                blocked_lines.append(
+                    f"engine.set_blocked(n_{ent.id}, {x}, {y}, {z}, {flags})"
+                )
+    if blocked_lines:
+        parts.append("-- Cell occupancy / blocking layer (set_blocked)")
+        parts.extend(blocked_lines)
         parts.append("")
 
     # 5b. Entity reaction triggers (non-verb world entities) ------------------
@@ -783,6 +815,76 @@ def _exit_door_slug(dest: Any) -> str | None:
     return None
 
 
+# §22 (Phase 5) — spatial authoring: integer cell positions + occupancy.
+#
+# Per-axis cell range mirrors the engine's packable range (wyrd src/cell.h:
+# 21-bit signed). Validate here so authors get an FML-level error rather than a
+# runtime engine rejection.
+_CELL_MIN = -1048576
+_CELL_MAX = 1048575
+
+# Occupancy block kinds → engine.set_blocked flag bitmask
+# (bit 0 = blocks movement, bit 1 = blocks sight / line-of-effect).
+_OCC_KIND_FLAGS = {"wall": 3, "move": 1, "sight": 2}
+
+
+def _is_int(v: Any) -> bool:
+    """True for a genuine int (bool is excluded — it is an int subclass)."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _coord_in_range(v: int, ent_id: str, what: str) -> int:
+    if not (_CELL_MIN <= v <= _CELL_MAX):
+        raise FmlSyntaxError(
+            f"{what} on {ent_id!r}: cell coordinate {v} out of range "
+            f"[{_CELL_MIN}, {_CELL_MAX}]"
+        )
+    return v
+
+
+def _parse_cell(value: Any, ent_id: str) -> tuple[int, int, int] | None:
+    """Parse a `position: [x, y, z]` value into a validated integer triple, or
+    None if no position was authored. Raises FmlSyntaxError on a malformed one."""
+    if value is None:
+        return None
+    if not (isinstance(value, list) and len(value) == 3 and all(_is_int(v) for v in value)):
+        raise FmlSyntaxError(
+            f"position on {ent_id!r} must be three integers [x, y, z]; got {value!r}"
+        )
+    return tuple(_coord_in_range(int(v), ent_id, "position") for v in value)  # type: ignore[return-value]
+
+
+def _parse_blocked_cells(value: Any, ent_id: str) -> list[tuple[int, int, int, int]]:
+    """Parse a `blocked:` value (a list of cells) into validated
+    (x, y, z, flags) tuples. Each cell is `[x, y, z]` (defaults to a solid wall:
+    blocks move + sight) or `[x, y, z, kind]` with kind in wall/move/sight.
+    Raises FmlSyntaxError on a malformed cell."""
+    if not isinstance(value, list):
+        raise FmlSyntaxError(
+            f"blocked on {ent_id!r} must be a list of cells [[x,y,z], ...]; got {value!r}"
+        )
+    out: list[tuple[int, int, int, int]] = []
+    for entry in value:
+        if not (isinstance(entry, list) and 3 <= len(entry) <= 4
+                and all(_is_int(v) for v in entry[:3])):
+            raise FmlSyntaxError(
+                f"blocked cell on {ent_id!r} must be [x, y, z] or [x, y, z, kind] "
+                f"with integer coords; got {entry!r}"
+            )
+        x, y, z = (_coord_in_range(int(entry[i]), ent_id, "blocked") for i in range(3))
+        flags = 3
+        if len(entry) == 4:
+            kind = entry[3]
+            if kind not in _OCC_KIND_FLAGS:
+                raise FmlSyntaxError(
+                    f"blocked cell kind on {ent_id!r} must be one of "
+                    f"{'/'.join(sorted(_OCC_KIND_FLAGS))}; got {kind!r}"
+                )
+            flags = _OCC_KIND_FLAGS[kind]
+        out.append((x, y, z, flags))
+    return out
+
+
 def _alias_blob(ent: FMLEntity) -> str | None:
     """An entity's noun aliases as a pipe-delimited, lowercased, pipe-bracketed
     string ("|cup|bone cup|") for the engine's noun resolver, or None if it has
@@ -846,7 +948,7 @@ def _collect_scalar_props(ent: FMLEntity) -> dict[str, Any]:
     ``name`` is also skipped: it is emitted explicitly as the create_node name,
     and repeating it would produce a duplicate Lua table key.
     """
-    _SKIP = frozenset({"name", "location", "exits", "exit"})
+    _SKIP = frozenset({"name", "location", "exits", "exit", "position", "blocked"})
     result: dict[str, Any] = {}
     for k, v in ent.properties.items():
         if k in _SKIP:
