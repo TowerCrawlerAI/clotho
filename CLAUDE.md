@@ -29,6 +29,20 @@ LLMs in the build path.
 - `lua_reader/` — round-trip reader (LFR → models), for `unlower`.
 - `slugify.py`, `errors.py`, `__main__.py` (CLI).
 
+## Spatial authoring (§22 Phase 5)
+
+The floor emitter lowers two optional spatial properties (engine reqs #104/#108):
+
+- `position: [x, y, z]` on an entity that has a `location:`/`at_location:` →
+  `engine.relate("in", n_<id>, n_<container>, x, y, z)` (the integer cell payload
+  on the location edge). Integer cells only, range ±2^20.
+- `blocked: [[x,y,z], [x,y,z,kind], …]` on a container →
+  `engine.set_blocked(n_<id>, x, y, z[, flags])`. `kind` ∈ `wall` (default; move+sight),
+  `move`, `sight`. Both validate at lower time (FmlSyntaxError on malformed).
+
+Additive: floors without these keys lower byte-identically. See `emit_lua.py`
+`_parse_cell` / `_parse_blocked_cells`; spec in `../wiki/design/FML.md` §8.3.
+
 ## Output contracts (do not drift)
 
 - LFR + stdlib-verb-module shapes: `../wyrd/docs/design/ENGINE_MODEL.md` §9 (verbs as stored
