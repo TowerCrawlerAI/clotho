@@ -86,6 +86,14 @@ def test_malformed_position_raises(bad):
         emit_lua_graph(make_floor([room, ent], start_location="arena"))
 
 
+def test_malformed_position_is_validated_even_without_a_container():
+    # A malformed position must be reported even when the entity has no
+    # recognized container (it would otherwise be a silent no-op).
+    ent = make_entity("e", "E", "actor", properties={"position": [1, 2]})
+    with pytest.raises(FmlSyntaxError):
+        emit_lua_graph(make_floor([ent], start_location="e"))
+
+
 def test_position_out_of_range_raises():
     room = make_entity("arena", "Arena", "room")
     ent = make_entity("e", "E", "actor",

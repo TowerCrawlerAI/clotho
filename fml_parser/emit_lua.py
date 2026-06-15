@@ -456,11 +456,14 @@ def emit_lua_graph(
         # Containment: at_location / location property → relate("in", ...).
         # (FML uses `at_location` for items in a room; `location` is the older
         # form. First match wins.)
+        # §22 Phase 5: an optional `position: [x, y, z]` rides the location link
+        # as the engine's integer cell payload (#104). Validate it up-front so a
+        # malformed position is always reported — even on an entity with no
+        # recognized container (where the position requires `location`/
+        # `at_location` and is otherwise a no-op).
+        cell = _parse_cell(ent.properties.get("position"), ent.id)
         container = ent.properties.get("at_location") or ent.properties.get("location")
         if isinstance(container, str) and container in world_ids:
-            # §22 Phase 5: an optional `position: [x, y, z]` rides the location
-            # link as the engine's integer cell payload (#104).
-            cell = _parse_cell(ent.properties.get("position"), ent.id)
             if cell is not None:
                 x, y, z = cell
                 relation_lines.append(
