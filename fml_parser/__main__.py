@@ -3,7 +3,9 @@
 Usage:
     python -m fml_parser lower <index.md> [-o <out.lua>]
     python -m fml_parser lower <index.md> --om --map -o <out.lua>
+    python -m fml_parser lower <index.md> --om --map --art-manifest <manifest.json> -o <out.lua>
     python -m fml_parser --stdlib-module <index.md> [-o <out.lua>]
+    python -m fml_parser artgen <index.md> [--provider curated|firefly] [--base-url /art] [-o <manifest.json>]
 
 `-o -` or omitting -o writes to stdout.
 
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import sys
 from pathlib import Path
 
@@ -76,12 +79,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "map.json is written beside the -o output file, or to cwd when -o is '-'.",
     )
 
+    ap.add_argument(
+        "--art-manifest",
+        metavar="MANIFEST_JSON",
+        default=None,
+        help="Path to an art manifest (produced by 'artgen') to merge into map.json. "
+        "Requires --map. Each room listed in the manifest has its art field set to "
+        '{"src": <image>, "fit": <fit>}. Rooms absent from the manifest are unchanged.',
+    )
+
     # Positional sub-command + source path.
     ap.add_argument(
         "command",
         nargs="?",
         choices=["lower"],
-        help="Lowering command.  Currently only 'lower' is defined.",
+        help="Lowering command.  Use 'artgen' for art-manifest generation (dispatched early).",
     )
     ap.add_argument(
         "source",
@@ -95,6 +107,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI main -- returns an integer exit code."""
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # ── artgen subcommand ─────────────────────────────────────────────────────
+    # Intercept before the main argparse runs so that artgen-specific flags
+    # (--provider, --base-url) are parsed by artgen's own ArgumentParser.
+    if argv and argv[0] == "artgen":
+        from .artgen import artgen_main
+        return artgen_main(argv[1:])
+
     ap = _build_parser()
     args = ap.parse_args(argv)
 
@@ -109,10 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         source_str = args.source
         mode = "floor"
     else:
-        ap.error("specify either 'lower <index.md>' or '--stdlib-module <index.md>'")
+        ap.error("specify either 'lower <index.md>', 'artgen <index.md>', "
+                 "or '--stdlib-module <index.md>'"
+                 )
         return 2  # unreachable; ap.error() calls sys.exit(2)
 
     emit_map_flag: bool = args.map
+    art_manifest_path: str | None = args.art_manifest
 
     # Validate --map usage.
     if emit_map_flag:
@@ -128,6 +153,14 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    # Validate --art-manifest usage.
+    if art_manifest_path is not None and not emit_map_flag:
+        print(
+            "fml-parser: error: --art-manifest requires --map",
+            file=sys.stderr,
+        )
+        return 2
 
     source_path = Path(source_str).resolve()
 
@@ -235,9 +268,36 @@ def main(argv: list[str] | None = None) -> int:
             if entity.id in _entity_token_snap:
                 entity.properties["token"] = _entity_token_snap[entity.id]
 
+        # Load art manifest if provided.
+        art_manifest: dict | None = None
+        if art_manifest_path is not None:
+            try:
+                art_manifest = json.loads(
+                    Path(art_manifest_path).read_text(encoding="utf-8")
+                )
+            except FileNotFoundError:
+                print(
+                    f"fml-parser: error: art manifest not found: {art_manifest_path}",
+                    file=sys.stderr,
+                )
+                return 1
+            except (OSError, json.JSONDecodeError) as exc:
+                print(
+                    f"fml-parser: error: cannot read art manifest "
+                    f"{art_manifest_path}: {exc}",
+                    file=sys.stderr,
+                )
+                return 1
+
         try:
             lua_bytes = lua_source.encode("utf-8")
-            map_json_str = emit_map_json(floor, lua_bytes)
+            map_data = json.loads(emit_map_json(floor, lua_bytes))
+
+            # Merge art manifest into map.json (Part 2 of spec).
+            if art_manifest is not None:
+                _merge_art_manifest(map_data, art_manifest)
+
+            map_json_str = json.dumps(map_data, indent=2, ensure_ascii=True)
         except Exception as exc:
             print(f"fml-parser: map emit error: {exc}", file=sys.stderr)
             return 1
@@ -263,6 +323,39 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Art manifest merge helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _merge_art_manifest(map_data: dict, manifest: dict) -> None:
+    """Merge ``manifest`` into ``map_data`` in place.
+
+    For each ``<room_id>`` in ``manifest["rooms"]``, set
+    ``map_data["rooms"][<room_id>]["art"] = {"src": <image>, "fit": <fit>}``.
+
+    For each entry in ``manifest["tokens"]``, merge into
+    ``map_data["tokens"]["art"][<id>] = {"src": <image>}``.
+
+    Rooms / tokens absent from the manifest are left unchanged.
+    Rooms in the manifest that don't appear in map_data are silently skipped.
+    """
+    manifest_rooms: dict = manifest.get("rooms", {})
+    for room_id, art_record in manifest_rooms.items():
+        room = map_data.get("rooms", {}).get(room_id)
+        if room is None:
+            continue  # Room not in this floor's map — skip.
+        room["art"] = {
+            "src": art_record["image"],
+            "fit": art_record.get("fit", "tile"),
+        }
+
+    manifest_tokens: dict = manifest.get("tokens", {})
+    token_art: dict = map_data.setdefault("tokens", {}).setdefault("art", {})
+    for token_id, token_record in manifest_tokens.items():
+        token_art[token_id] = {"src": token_record["image"]}
 
 
 if __name__ == "__main__":
