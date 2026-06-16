@@ -187,6 +187,65 @@ def test_m4_lua_emitter_unchanged_without_map():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Render hints — `render:` reserved key (VTT presentation, e.g. hide_arrows)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_hints_flow_to_map_and_stripped_from_lua():
+    """A room's `render:` dict is emitted into its map.json room record and
+    stripped from the LFR; a room without `render:` carries no render field."""
+    tunnel = FMLEntity(
+        id="tunnel",
+        name="Twisting Tunnel",
+        kind="room",
+        properties={
+            "exits": {"south": "hall"},
+            "render": {"hide_arrows": True},
+        },
+        kind_chain=["room"],
+    )
+    hall = FMLEntity(
+        id="hall",
+        name="Hall",
+        kind="room",
+        properties={"exits": {"north": "tunnel"}},
+        kind_chain=["room"],
+    )
+    f = Floor(name="Test", properties={"start_location": "hall"})
+    f += tunnel
+    f += hall
+
+    # Emit map BEFORE stripping (needs the key).
+    lua_bytes = emit_lua_om(f, source_path="test.md").encode("utf-8")
+    map_data = emit_map(f, lua_bytes)
+
+    # The hint flows through verbatim onto the room record.
+    assert map_data["rooms"]["tunnel"]["render"] == {"hide_arrows": True}
+    # A room with no `render:` carries no render field (additive / opt-in).
+    assert "render" not in map_data["rooms"]["hall"]
+
+    # Strip presentation keys, then re-emit the LFR.
+    strip_map_keys(f)
+    assert "render" not in tunnel.properties
+
+    lua_source = emit_lua_om(f, source_path="test.md")
+    # The hint must not leak into the engine LFR.
+    assert "hide_arrows" not in lua_source
+
+
+def test_render_hints_absent_keeps_lua_byte_identical():
+    """strip_map_keys is a no-op on a floor with no render/map/token keys."""
+    a = _make_room("a", "A", {"north": "b"})
+    b = _make_room("b", "B", {"south": "a"})
+    f = _make_floor(a, b, start="a")
+
+    lua_before = emit_lua_om(f, source_path="test.md")
+    strip_map_keys(f)
+    lua_after = emit_lua_om(f, source_path="test.md")
+    assert lua_before == lua_after
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # M2 — Determinism
 # ─────────────────────────────────────────────────────────────────────────────
 
