@@ -89,11 +89,15 @@ _OPPOSITE: dict[str, str] = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def strip_map_keys(floor: Floor) -> None:
-    """Remove `map:` and `token:` from the floor's property dicts.
+    """Remove `map:`, `token:`, and `render:` from the floor's property dicts.
 
     Called BEFORE the Lua emitter so that Wyrd never sees presentation data
     (MAP_FORMAT.md §4, Decisions §18).  Mutates the Floor object in place.
-    Safe to call even when no map/token keys are present.
+    Safe to call even when no map/token/render keys are present.
+
+    `render:` carries VTT render hints (e.g. `hide_arrows`) consumed only by the
+    map emitter; like map/token it is presentation-only and must never reach the
+    engine LFR.
     """
     # Floor-level map defaults.
     floor.properties.pop("map", None)
@@ -102,6 +106,7 @@ def strip_map_keys(floor: Floor) -> None:
     for entity in floor.all_entities():
         entity.properties.pop("map", None)
         entity.properties.pop("token", None)
+        entity.properties.pop("render", None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +129,18 @@ def _entity_token_url(entity: FMLEntity) -> str | None:
     """Read per-entity `token:` URL, if present."""
     v = entity.properties.get("token")
     return str(v) if v is not None else None
+
+
+def _entity_render_hints(entity: FMLEntity) -> dict[str, Any]:
+    """Read per-entity `render:` VTT hints dict, if present.
+
+    Render hints are presentation-only directives (e.g. `hide_arrows: true` to
+    suppress connection arrows on a room) passed through to map.json and stripped
+    from the LFR.  Recognized keys are interpreted by the VTT client; the emitter
+    passes the dict through verbatim so new hints need no emitter changes.
+    """
+    v = entity.properties.get("render")
+    return v if isinstance(v, dict) else {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -739,6 +756,13 @@ def emit_map(
         if ovr:
             entity_map_overrides[rid] = ovr
 
+    # ── Read per-entity render hints (VTT presentation, e.g. hide_arrows) ─────
+    entity_render_hints: dict[str, dict[str, Any]] = {}
+    for rid, entity in rooms.items():
+        hints = _entity_render_hints(entity)
+        if hints:
+            entity_render_hints[rid] = hints
+
     # ── Collect pinned rooms (cell coordinates) ──────────────────────────────
     # pinned_cells: {room_id: (cell_x, cell_y)} — author-specified cell coords.
     # For BFS, we convert these to approximate unit coords.
@@ -841,6 +865,13 @@ def emit_map(
             "art": art,
             "style": {"palette": palette},
         }
+
+        # Render hints (presentation-only; passed through verbatim). Only emitted
+        # when the room authored a non-empty `render:` dict, so floors without
+        # hints keep byte-identical map.json output.
+        render_hints = entity_render_hints.get(rid)
+        if render_hints:
+            room_records[rid]["render"] = render_hints
 
     # Helper: get cell rect for a room (works for both pinned and unit-placed).
     def _room_cell_rect(rid: str) -> dict[str, int] | None:
