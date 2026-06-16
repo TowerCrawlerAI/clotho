@@ -642,8 +642,8 @@ def test_a6_artgen_cli_bone_garden_expected_textures(tmp_path: Path) -> None:
     assert _texture("garden") == "silt", (
         f"garden (outdoor=true) → silt; got {rooms.get('garden')}"
     )
-    assert _texture("crypt") == "ashlar", (
-        f"crypt (level=-2) → ashlar; got {rooms.get('crypt')}"
+    assert _texture("crypt") == "dark_stone", (
+        f"crypt (underground=true, level=-1) → dark_stone; got {rooms.get('crypt')}"
     )
     assert _texture("twisting_tunnel_a1") == "dark_stone", (
         f"twisting_tunnel_a1 (underground=true, level=-1) → dark_stone; "
