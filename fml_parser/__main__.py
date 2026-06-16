@@ -202,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         _floor_map_snap = copy.deepcopy(floor.properties.get("map", {}))
         _entity_map_snap: dict = {}
         _entity_token_snap: dict = {}
+        _entity_render_snap: dict = {}
         for entity in floor.all_entities():
             em = entity.properties.get("map")
             if isinstance(em, dict):
@@ -209,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
             tk = entity.properties.get("token")
             if tk is not None:
                 _entity_token_snap[entity.id] = tk
+            rd = entity.properties.get("render")
+            if isinstance(rd, dict):
+                _entity_render_snap[entity.id] = copy.deepcopy(rd)
 
     # Strip map/token keys so the Lua emitter never sees them (MAP_FORMAT §4).
     strip_map_keys(floor)
@@ -267,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
                 entity.properties["map"] = _entity_map_snap[entity.id]
             if entity.id in _entity_token_snap:
                 entity.properties["token"] = _entity_token_snap[entity.id]
+            if entity.id in _entity_render_snap:
+                entity.properties["render"] = _entity_render_snap[entity.id]
 
         # Load art manifest if provided.
         art_manifest: dict | None = None

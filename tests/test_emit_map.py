@@ -1011,3 +1011,41 @@ def test_m4_map_key_stripped_from_om_lua_output():
     assert "https://cdn.example.com/art.png" not in lua_after, (
         "Art URL from map: property must NOT appear in floor.lua (Wyrd must never see it)"
     )
+
+
+def test_cli_render_hint_round_trips_to_map_json(tmp_path):
+    """Regression: `lower --om --map` must carry a room's `render:` hint into
+    map.json. The CLI snapshots presentation keys before strip_map_keys (which
+    strips render too) and re-hydrates them for the map emitter — render must be
+    snapshotted/re-hydrated like map/token, else it vanishes from map.json. The
+    direct emit_map unit tests don't exercise this CLI path."""
+    from fml_parser.__main__ import main
+
+    (tmp_path / "rooms").mkdir()
+    (tmp_path / "index.md").write_text(
+        "# Mini Floor\n\n"
+        "[Tunnel](rooms/tunnel.md)\n[Hall](rooms/hall.md)\n\n"
+        "- start_location: hall\n\n> mini.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "rooms" / "tunnel.md").write_text(
+        "# Tunnel\n\n- kind: room\n- render:\n  - hide_arrows: true\n"
+        "- exits:\n  - south: hall\n\n> a tunnel.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "rooms" / "hall.md").write_text(
+        "# Hall\n\n- kind: room\n- exits:\n  - north: tunnel\n\n> a hall.\n",
+        encoding="utf-8",
+    )
+
+    out_lua = tmp_path / "floor.lua"
+    rc = main(["lower", str(tmp_path / "index.md"), "--om", "--map", "-o", str(out_lua)])
+    assert rc == 0, "CLI must exit 0"
+
+    map_data = json.loads((tmp_path / "map.json").read_text())
+    assert map_data["rooms"]["tunnel"]["render"] == {"hide_arrows": True}, (
+        "render hint must survive the CLI snapshot/strip/re-hydrate into map.json"
+    )
+    assert "render" not in map_data["rooms"]["hall"]
+    # And it must never leak into the engine LFR.
+    assert "hide_arrows" not in out_lua.read_text()
