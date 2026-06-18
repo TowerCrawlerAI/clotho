@@ -339,20 +339,23 @@ def main(argv: list[str] | None = None) -> int:
 def _merge_art_manifest(map_data: dict, manifest: dict) -> None:
     """Merge ``manifest`` into ``map_data`` in place.
 
-    For each ``<room_id>`` in ``manifest["rooms"]``, set
-    ``map_data["rooms"][<room_id>]["art"] = {"src": <image>, "fit": <fit>}``.
-
-    For each entry in ``manifest["tokens"]``, merge into
-    ``map_data["tokens"]["art"][<id>] = {"src": <image>}``.
+    The manifest is a *fallback* for art the author did not specify: an explicit
+    FML ``image:`` / ``token:`` (already present as ``art`` in ``map_data``) always
+    **wins** over the curated/auto-generated manifest. So for each
+    ``<room_id>`` / token in the manifest, the manifest value is applied **only if
+    that room/token has no FML art yet** — curated art fills the gaps, never
+    clobbers authored art.
 
     Rooms / tokens absent from the manifest are left unchanged.
-    Rooms in the manifest that don't appear in map_data are silently skipped.
+    Manifest IDs that don't appear in map_data are silently skipped.
     """
     manifest_rooms: dict = manifest.get("rooms", {})
     for room_id, art_record in manifest_rooms.items():
         room = map_data.get("rooms", {}).get(room_id)
         if room is None:
             continue  # Room not in this floor's map — skip.
+        if room.get("art"):
+            continue  # Explicit FML image: wins — don't overwrite authored art.
         room["art"] = {
             "src": art_record["image"],
             "fit": art_record.get("fit", "tile"),
@@ -361,6 +364,8 @@ def _merge_art_manifest(map_data: dict, manifest: dict) -> None:
     manifest_tokens: dict = manifest.get("tokens", {})
     token_art: dict = map_data.setdefault("tokens", {}).setdefault("art", {})
     for token_id, token_record in manifest_tokens.items():
+        if token_art.get(token_id):
+            continue  # Explicit FML token: wins — don't overwrite authored art.
         token_art[token_id] = {"src": token_record["image"]}
 
 

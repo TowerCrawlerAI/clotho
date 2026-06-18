@@ -448,16 +448,19 @@ class TestArtManifestMerge:
             "src": "/art/silt.jpg", "fit": "tile"
         }
 
-    def test_manifest_overrides_fml_art(self, tmp_path: Path) -> None:
-        """Manifest art overrides any FML map: image: art."""
+    def test_fml_art_wins_over_manifest(self, tmp_path: Path) -> None:
+        """Explicit FML map: image: art is NOT overwritten by the manifest.
+
+        The manifest is a fallback for rooms the author didn't art; a room that
+        already has FML art keeps it (curated/auto art fills gaps only).
+        """
         from fml_parser.__main__ import _merge_art_manifest
 
-        # Simulate a map_data dict that already has art from FML.
+        # map_data with FML art on `hall`, none on `crypt`.
         map_data: dict = {
             "rooms": {
-                "hall": {
-                    "art": {"src": "https://old.cdn/hall.png", "fit": "cover"}
-                }
+                "hall": {"art": {"src": "sample-dungeon/rooms/hall.jpg", "fit": "cover"}},
+                "crypt": {"art": None},
             },
             "tokens": {"art": {}},
         }
@@ -465,14 +468,45 @@ class TestArtManifestMerge:
             "version": 1,
             "rooms": {
                 "hall": {"image": "/art/flagstone.jpg", "fit": "tile"},
+                "crypt": {"image": "/art/dark_stone.jpg", "fit": "tile"},
             },
             "tokens": {},
         }
         _merge_art_manifest(map_data, manifest)
+        # hall: authored FML art preserved (manifest did NOT clobber it).
         assert map_data["rooms"]["hall"]["art"] == {
-            "src": "/art/flagstone.jpg",
+            "src": "sample-dungeon/rooms/hall.jpg",
+            "fit": "cover",
+        }
+        # crypt: no FML art → manifest fills the gap.
+        assert map_data["rooms"]["crypt"]["art"] == {
+            "src": "/art/dark_stone.jpg",
             "fit": "tile",
         }
+
+    def test_fml_token_art_wins_over_manifest(self, tmp_path: Path) -> None:
+        """Explicit FML token: art is kept; manifest only fills un-arted tokens."""
+        from fml_parser.__main__ import _merge_art_manifest
+
+        map_data: dict = {
+            "rooms": {},
+            "tokens": {"art": {"skull_king": {"src": "sample-dungeon/tokens/skull_king.png"}}},
+        }
+        manifest = {
+            "version": 1,
+            "rooms": {},
+            "tokens": {
+                "skull_king": {"image": "/art/tokens/monster.png"},
+                "skeleton": {"image": "/art/tokens/skeleton.png"},
+            },
+        }
+        _merge_art_manifest(map_data, manifest)
+        # Authored token art preserved.
+        assert map_data["tokens"]["art"]["skull_king"] == {
+            "src": "sample-dungeon/tokens/skull_king.png"
+        }
+        # Un-arted token filled from manifest.
+        assert map_data["tokens"]["art"]["skeleton"] == {"src": "/art/tokens/skeleton.png"}
 
     def test_manifest_room_not_in_floor_skipped(self, tmp_path: Path) -> None:
         """Room IDs in manifest that don't exist in map.json are silently skipped."""
