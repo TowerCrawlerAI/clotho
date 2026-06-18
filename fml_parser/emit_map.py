@@ -623,93 +623,98 @@ def _classify_connection(
 
 
 def _route_path(
-    from_pos: tuple[int, int],
-    to_pos: tuple[int, int],
+    from_rect: dict[str, int],
+    to_rect: dict[str, int],
     dir_name: str,
-    room_w: int,
-    room_h: int,
-    cell_scale: int,
 ) -> list[list[int]]:
     """Route an orthogonal corridor path between two rooms (§3 step 5).
 
-    `from_pos` and `to_pos` are unit positions.  Each unit cell maps to
-    room_w × room_h cell footprint plus a corridor gutter of
-    (cell_scale - room_w) / 2 on each side.
-
+    Works off the rooms' final (centered) cell RECTS so the corridor meets each
+    room at the midpoint of its facing wall — regardless of the two rooms' sizes.
     Returns a list of [col, row] cell waypoints.
     """
-    # Convert unit positions to cell positions (anchor = top-left of room rect).
-    # Cell origin of a room at unit (ux, uy):
-    #   col = ux * cell_scale
-    #   row = uy * cell_scale
-    # Facing midpoint: mid of the edge toward the exit direction.
-    fx_cell = from_pos[0] * cell_scale
-    fy_cell = from_pos[1] * cell_scale
-    tx_cell = to_pos[0] * cell_scale
-    ty_cell = to_pos[1] * cell_scale
+    dx, dy = _CARDINAL_VECTORS.get(dir_name, (0, 0))
 
-    half_w = room_w // 2
-    half_h = room_h // 2
+    def _facing_midpoint(rect: dict[str, int], ddx: int, ddy: int) -> tuple[int, int]:
+        """Midpoint of the wall of `rect` facing direction (ddx, ddy)."""
+        cx_mid = rect["x"] + rect["w"] // 2
+        cy_mid = rect["y"] + rect["h"] // 2
+        col = rect["x"] + rect["w"] if ddx > 0 else rect["x"] if ddx < 0 else cx_mid
+        row = rect["y"] + rect["h"] if ddy > 0 else rect["y"] if ddy < 0 else cy_mid
+        return col, row
 
-    vec = _CARDINAL_VECTORS.get(dir_name, (0, 0))
-    dx, dy = vec
-
-    # From-room facing edge midpoint.
-    from_mid_col = fx_cell + half_w + (room_w // 2) * dx
-    from_mid_row = fy_cell + half_h + (room_h // 2) * dy
-
-    # To-room facing edge midpoint (opposite direction).
-    odx, ody = -dx, -dy
-    to_mid_col = tx_cell + half_w + (room_w // 2) * odx
-    to_mid_row = ty_cell + half_h + (room_h // 2) * ody
+    from_col, from_row = _facing_midpoint(from_rect, dx, dy)
+    to_col, to_row = _facing_midpoint(to_rect, -dx, -dy)
 
     # Simple L-shaped orthogonal route.
-    if from_mid_col == to_mid_col or from_mid_row == to_mid_row:
+    if from_col == to_col or from_row == to_row:
         # Already collinear — straight line.
-        return [[from_mid_col, from_mid_row], [to_mid_col, to_mid_row]]
-    else:
-        # L-shape: go horizontal first, then vertical.
-        mid = [to_mid_col, from_mid_row]
-        return [[from_mid_col, from_mid_row], mid, [to_mid_col, to_mid_row]]
+        return [[from_col, from_row], [to_col, to_row]]
+    # L-shape: go horizontal first, then vertical.
+    return [[from_col, from_row], [to_col, from_row], [to_col, to_row]]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cell-coordinate transformation
+# Cell-coordinate transformation — content-sized tracks + centered cells (§3)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _unit_to_cell_rect(
-    ux: int, uy: int, room_w: int, room_h: int, cell_scale: int,
-    entity_overrides: dict[str, Any],
+def _compute_tracks(
+    unit_pos: dict[str, tuple[int, int]],
+    sizes: dict[str, tuple[int, int]],
+    default_w: int,
+    default_h: int,
+    gutter: int,
+) -> tuple[dict[int, int], dict[int, int], dict[int, int], dict[int, int]]:
+    """Content-sized track grid for one level plane (MAP_FORMAT §3).
+
+    Each unit COLUMN is sized to the widest room placed in it and each unit ROW
+    to the tallest; empty interior tracks take the default room size so the grid
+    stays contiguous (cardinal steps land on real, separated bands). Returns
+    ``(col_x, col_w, row_y, row_h)``: for each used unit coordinate, the starting
+    cell offset and the band size of its column / row. A room is then centered in
+    its (col, row) band by :func:`_track_rect`, so adjacent rooms of any sizes
+    align on their shared wall midpoints. Deterministic: only sorted/range
+    iteration, no RNG.
+    """
+    if not unit_pos:
+        return {}, {}, {}, {}
+    col_w: dict[int, int] = {}
+    row_h: dict[int, int] = {}
+    for rid, (ux, uy) in unit_pos.items():
+        w, h = sizes[rid]
+        col_w[ux] = max(col_w.get(ux, 0), w)
+        row_h[uy] = max(row_h.get(uy, 0), h)
+    # Fill empty interior tracks with the default room size.
+    min_ux, max_ux = min(col_w), max(col_w)
+    min_uy, max_uy = min(row_h), max(row_h)
+    for ux in range(min_ux, max_ux + 1):
+        col_w.setdefault(ux, default_w)
+    for uy in range(min_uy, max_uy + 1):
+        row_h.setdefault(uy, default_h)
+    # Cumulative cell offsets with a gutter between every track (origin at the
+    # first used track, so the plane is normalized to (0, 0)).
+    col_x: dict[int, int] = {}
+    acc = 0
+    for ux in range(min_ux, max_ux + 1):
+        col_x[ux] = acc
+        acc += col_w[ux] + gutter
+    row_y: dict[int, int] = {}
+    acc = 0
+    for uy in range(min_uy, max_uy + 1):
+        row_y[uy] = acc
+        acc += row_h[uy] + gutter
+    return col_x, col_w, row_y, row_h
+
+
+def _track_rect(
+    ux: int, uy: int, w: int, h: int,
+    col_x: dict[int, int], col_w: dict[int, int],
+    row_y: dict[int, int], row_h: dict[int, int],
 ) -> dict[str, int]:
-    """Convert unit position to cell rect, honouring per-room w/h overrides."""
-    w = int(entity_overrides.get("width", room_w))
-    h = int(entity_overrides.get("height", room_h))
-    col = ux * cell_scale
-    row = uy * cell_scale
-    return {"x": col, "y": row, "w": w, "h": h}
-
-
-def _level_bounds(
-    level_rooms: dict[str, FMLEntity],
-    positions: dict[str, tuple[int, int]],
-    room_w: int,
-    room_h: int,
-    cell_scale: int,
-    entity_map_overrides: dict[str, dict[str, Any]],
-) -> tuple[int, int]:
-    """Return (width, height) in cells of the level plane's bounding box."""
-    max_col = 0
-    max_row = 0
-    for rid in level_rooms:
-        pos = positions.get(rid)
-        if pos is None:
-            continue
-        overrides = entity_map_overrides.get(rid, {})
-        rect = _unit_to_cell_rect(pos[0], pos[1], room_w, room_h, cell_scale, overrides)
-        max_col = max(max_col, rect["x"] + rect["w"])
-        max_row = max(max_row, rect["y"] + rect["h"])
-    # Add a margin of cell_scale (one unit).
-    return max(max_col + cell_scale, 1), max(max_row + cell_scale, 1)
+    """Cell rect for a room of size (w, h) centered within its (col, row) band."""
+    x = col_x[ux] + (col_w[ux] - w) // 2
+    y = row_y[uy] + (row_h[uy] - h) // 2
+    return {"x": x, "y": y, "w": w, "h": h}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -756,6 +761,16 @@ def emit_map(
         if ovr:
             entity_map_overrides[rid] = ovr
 
+    # Per-room cell size (w, h): override or floor default. Drives both the
+    # content-sized track grid and each room's rect.
+    room_sizes: dict[str, tuple[int, int]] = {}
+    for rid in rooms:
+        ovr = entity_map_overrides.get(rid, {})
+        room_sizes[rid] = (
+            int(ovr.get("width", room_w)),
+            int(ovr.get("height", room_h)),
+        )
+
     # ── Read per-entity render hints (VTT presentation, e.g. hide_arrows) ─────
     entity_render_hints: dict[str, dict[str, Any]] = {}
     for rid, entity in rooms.items():
@@ -793,6 +808,9 @@ def emit_map(
     # all_unit_pos: {room_id: (ux, uy)} for BFS-placed (non-pinned) rooms.
     # Pinned rooms are NOT in this dict (they use pinned_cells directly).
     all_unit_pos: dict[str, tuple[int, int]] = {}
+    # unit_rects: {room_id: cell rect} for BFS-placed (non-pinned) rooms, centered
+    # within their content-sized track band (per level). Pinned rooms are not here.
+    unit_rects: dict[str, dict[str, int]] = {}
     for lvl in sorted(level_ids.keys()):
         level_room_ids = level_ids[lvl]
         level_rooms_dict = {rid: rooms[rid] for rid in level_room_ids}
@@ -823,6 +841,14 @@ def emit_map(
 
         all_unit_pos.update(non_pinned_pos)
 
+        # Content-sized track grid for this level plane + centered rects (§3).
+        col_x, col_w, row_y, row_h = _compute_tracks(
+            non_pinned_pos, room_sizes, room_w, room_h, gutter
+        )
+        for rid, (ux, uy) in non_pinned_pos.items():
+            w, h = room_sizes[rid]
+            unit_rects[rid] = _track_rect(ux, uy, w, h, col_x, col_w, row_y, row_h)
+
     # ── Build room records ────────────────────────────────────────────────────
     room_records: dict[str, Any] = {}
     for rid in sorted(rooms.keys()):
@@ -840,12 +866,11 @@ def emit_map(
             h = int(ovr.get("height", room_h))
             rect = {"x": cx, "y": cy, "w": w, "h": h}
         else:
-            unit_pos = all_unit_pos.get(rid)
-            if unit_pos is not None:
-                rect = _unit_to_cell_rect(unit_pos[0], unit_pos[1], room_w, room_h, cell_scale, ovr)
-            else:
+            rect = unit_rects.get(rid)
+            if rect is None:
                 # Room not placed (isolated with no embeddable edges).
-                rect = {"x": 0, "y": 0, "w": room_w, "h": room_h}
+                w, h = room_sizes[rid]
+                rect = {"x": 0, "y": 0, "w": w, "h": h}
 
         # Art from per-room map overrides.
         art: dict[str, Any] | None = None
@@ -875,17 +900,11 @@ def emit_map(
 
     # Helper: get cell rect for a room (works for both pinned and unit-placed).
     def _room_cell_rect(rid: str) -> dict[str, int] | None:
-        ovr = entity_map_overrides.get(rid, {})
         if rid in pinned_cells:
             cx, cy = pinned_cells[rid]
-            w = int(ovr.get("width", room_w))
-            h = int(ovr.get("height", room_h))
+            w, h = room_sizes[rid]
             return {"x": cx, "y": cy, "w": w, "h": h}
-        unit_pos_val = all_unit_pos.get(rid)
-        if unit_pos_val is not None:
-            return _unit_to_cell_rect(unit_pos_val[0], unit_pos_val[1],
-                                       room_w, room_h, cell_scale, ovr)
-        return None
+        return unit_rects.get(rid)
 
     # ── Build connections ─────────────────────────────────────────────────────
     connections: list[dict[str, Any]] = []
@@ -946,11 +965,14 @@ def emit_map(
                 is_one_way,
             )
 
-            # Route corridor paths (§3 step 5).
-            if conn["kind"] in ("corridor", "door") and from_unit and to_unit:
-                conn["path"] = _route_path(
-                    from_unit, to_unit, dir_name, room_w, room_h, cell_scale
-                )
+            # Route corridor paths (§3 step 5) off the rooms' centered rects.
+            to_rect = _room_cell_rect(to_id)
+            if (
+                conn["kind"] in ("corridor", "door")
+                and from_rect is not None
+                and to_rect is not None
+            ):
+                conn["path"] = _route_path(from_rect, to_rect, dir_name)
 
             connections.append(conn)
 
@@ -971,8 +993,8 @@ def emit_map(
                 rect = r["rect"]
                 max_col = max(max_col, rect["x"] + rect["w"])
                 max_row = max(max_row, rect["y"] + rect["h"])
-        w = max(max_col + cell_scale, 1)
-        h = max(max_row + cell_scale, 1)
+        w = max(max_col + gutter, 1)
+        h = max(max_row + gutter, 1)
         levels.append({"level": lvl, "width": w, "height": h})
 
     # ── Build layers ──────────────────────────────────────────────────────────

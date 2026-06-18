@@ -1049,3 +1049,93 @@ def test_cli_render_hint_round_trips_to_map_json(tmp_path):
     assert "render" not in map_data["rooms"]["hall"]
     # And it must never leak into the engine LFR.
     assert "hide_arrows" not in out_lua.read_text()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M7 — size-aware layout: content-sized tracks + centered cells (§3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _make_sized_room(
+    rid: str, name: str, exits: dict,
+    width: int | None = None, height: int | None = None, level: int = 0,
+) -> FMLEntity:
+    """A room with optional per-room map: width/height overrides."""
+    props: dict = {"exits": exits}
+    if level != 0:
+        props["level"] = level
+    mp: dict = {}
+    if width is not None:
+        mp["width"] = width
+    if height is not None:
+        mp["height"] = height
+    if mp:
+        props["map"] = mp
+    return FMLEntity(id=rid, name=name, kind="room", properties=props, kind_chain=["room"])
+
+
+def test_m7_smaller_neighbors_center_on_larger_room():
+    """A big room's smaller cardinal neighbors center on its wall midpoints."""
+    big = _make_sized_room(
+        "big", "Big", {"east": "right", "south": "down", "west": "left"},
+        width=9, height=9,
+    )
+    right = _make_sized_room("right", "Right", {"west": "big"})
+    down = _make_sized_room("down", "Down", {"north": "big"})
+    left = _make_sized_room("left", "Left", {"east": "big"})
+    m = _emit_map_for(_make_floor(big, right, down, left, start="big"))
+    R = {k: v["rect"] for k, v in m["rooms"].items()}
+    b = R["big"]
+    bcx, bcy = b["x"] + b["w"] // 2, b["y"] + b["h"] // 2
+    # East / West neighbors share the big room's horizontal centre-line (row).
+    for nid in ("right", "left"):
+        n = R[nid]
+        assert n["y"] + n["h"] // 2 == bcy, f"{nid} not centred on big's east/west wall"
+    # South neighbor shares the big room's vertical centre-line (column).
+    d = R["down"]
+    assert d["x"] + d["w"] // 2 == bcx, "down not centred on big's south wall"
+
+
+def test_m7_column_band_sized_to_widest_room():
+    """A wide room widens its whole column; a narrow room in it stays centred."""
+    narrow = _make_sized_room("narrow", "Narrow", {"north": "wide"})
+    wide = _make_sized_room("wide", "Wide", {"south": "narrow"}, width=9, height=3)
+    m = _emit_map_for(_make_floor(narrow, wide, start="narrow"))
+    R = {k: v["rect"] for k, v in m["rooms"].items()}
+    # narrow (w=3) and wide (w=9) share a column → same horizontal centre.
+    assert R["narrow"]["x"] + R["narrow"]["w"] // 2 == R["wide"]["x"] + R["wide"]["w"] // 2
+
+
+def test_m7_mixed_sizes_no_overlap():
+    """Mixed-size rooms never overlap after centring."""
+    import itertools
+    big = _make_sized_room("big", "Big", {"east": "right", "south": "down"}, width=9, height=9)
+    right = _make_sized_room("right", "Right", {"west": "big", "south": "corner"})
+    down = _make_sized_room("down", "Down", {"north": "big", "east": "corner"})
+    corner = _make_sized_room("corner", "Corner", {"north": "right", "west": "down"})
+    m = _emit_map_for(_make_floor(big, right, down, corner, start="big"))
+    rects = [v["rect"] for v in m["rooms"].values()]
+
+    def overlap(a, c):
+        return not (
+            a["x"] + a["w"] <= c["x"] or c["x"] + c["w"] <= a["x"]
+            or a["y"] + a["h"] <= c["y"] or c["y"] + c["h"] <= a["y"]
+        )
+
+    for a, c in itertools.combinations(rects, 2):
+        assert not overlap(a, c), f"rooms overlap: {a} ∩ {c}"
+
+
+def test_m7_route_path_meets_facing_walls():
+    """_route_path waypoints land on each room's facing-wall midpoint."""
+    from fml_parser.emit_map import _route_path
+    a = {"x": 0, "y": 0, "w": 9, "h": 9}     # big room
+    b = {"x": 20, "y": 3, "w": 3, "h": 3}    # small room to the east
+    path = _route_path(a, b, "east")
+    # First point on big's right-wall midpoint; last on small's left-wall midpoint.
+    assert path[0] == [a["x"] + a["w"], a["y"] + a["h"] // 2]
+    assert path[-1] == [b["x"], b["y"] + b["h"] // 2]
+    # Vertical (north): from-room top-wall midpoint, to-room bottom-wall midpoint.
+    vpath = _route_path(b, a, "north")
+    assert vpath[0] == [b["x"] + b["w"] // 2, b["y"]]
+    assert vpath[-1] == [a["x"] + a["w"] // 2, a["y"] + a["h"]]
