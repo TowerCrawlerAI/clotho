@@ -1365,10 +1365,13 @@ def _parse_entity(
     # _parse_entity_children handles #### Triggers H4 detection and routes
     # H6 headings appropriately — either as new-style triggers (verbatim name)
     # or old-style sub-entity triggers (slugified), plus H5 sub-entities.
+    # hoisted_props carries properties extracted from special H4 sections such
+    # as #### Persona (persona: and goal: items) — merged into the entity below.
     subentities: list[FMLEntity] = []
+    hoisted_props: dict[str, Any] = {}
     if heading_level == 3:
         remainder = tokens[own_end:]
-        child_triggers, subentities = _parse_entity_children(
+        child_triggers, subentities, hoisted_props = _parse_entity_children(
             remainder, parent_heading_level=3, kind_maps=kind_maps
         )
         own_triggers.extend(child_triggers)
@@ -1378,13 +1381,20 @@ def _parse_entity(
     # #### Triggers H4 detection for H5 sub-entities too.
     if heading_level == 5:
         remainder_5 = tokens[own_end:]
-        child_triggers_5, _ = _parse_entity_children(
+        child_triggers_5, _, hoisted_props_5 = _parse_entity_children(
             remainder_5, parent_heading_level=5, kind_maps=kind_maps
         )
         own_triggers.extend(child_triggers_5)
+        hoisted_props.update(hoisted_props_5)
+
+    # Merge hoisted_props (from special H4 sections like #### Persona) into the
+    # entity's own property dict. The entity's own inline properties WIN on
+    # conflict (they are the author's direct declaration, hoisted props come
+    # from a subsection and are treated as secondary declarations).
+    merged_properties: dict[str, Any] = {**hoisted_props, **properties}
 
     # Determine kind — if `properties` has explicit `kind`, that wins
-    kind = str(properties.get("kind", default_kind))
+    kind = str(merged_properties.get("kind", default_kind))
 
     entity_id = slugify(name)
 
@@ -1392,7 +1402,7 @@ def _parse_entity(
         id=entity_id,
         name=name,
         kind=kind,
-        properties=properties,
+        properties=merged_properties,
         prose=prose,
         links=links,
         subentities=subentities,
@@ -1458,9 +1468,9 @@ def _parse_entity_children(
     tokens: list[Token],
     parent_heading_level: int,
     kind_maps: _KindMaps | None = None,
-) -> tuple[list[Trigger], list[FMLEntity]]:
+) -> tuple[list[Trigger], list[FMLEntity], dict[str, Any]]:
     """Walk the body of an H3 or H5 entity after its own-body boundary and
-    return (triggers, sub_entities).
+    return (triggers, sub_entities, hoisted_props).
 
     Detects ``#### Triggers`` H4 subsections:
     - H6 headings under a ``Triggers`` H4 → new-style trigger declarations on the
@@ -1470,13 +1480,25 @@ def _parse_entity_children(
       trigger declarations with **slugified** name and a deprecation warning.
     - H5 headings under any non-Triggers H4 (or before any H4) → sub-entities.
 
+    Detects ``#### Persona`` H4 subsections (LLM-brain NPC authoring):
+    - ``- persona: <text>`` → a string property ``persona`` hoisted onto the
+      enclosing entity.
+    - ``- goal: <text>`` (repeatable) → a list property ``goals`` (in authoring
+      order) hoisted onto the enclosing entity.
+
+    ``hoisted_props`` carries the properties extracted from ``#### Persona``; the
+    caller (``_parse_entity``) merges them into the entity's own property dict,
+    with the entity's inline properties winning on conflict.
+
     For H5 parents (parent_heading_level=5), the token slice passed here already
     contains only the H5's body beyond own_end, which is only H6s (triggers).
     """
     triggers: list[Trigger] = []
     subentities: list[FMLEntity] = []
+    hoisted_props: dict[str, Any] = {}
     current_h4_label: str | None = None
     in_triggers_section = False
+    in_persona_section = False
 
     i = 0
     while i < len(tokens):
@@ -1485,10 +1507,23 @@ def _parse_entity_children(
 
         if lvl == 4:
             current_h4_label = _inline_text_after(tokens, i)
-            in_triggers_section = (
-                current_h4_label.strip().lower() == "triggers"
-            )
+            label_lower = current_h4_label.strip().lower()
+            in_triggers_section = label_lower == "triggers"
+            in_persona_section = label_lower == "persona"
             i += 3
+            continue
+
+        # ── #### Persona body: extract bullet list items ──────────────────
+        if in_persona_section and tok.type == "bullet_list_open" and tok.level == 0:
+            # Find the extent of this H4 section (next H4-or-above or end of tokens).
+            persona_section_end = _next_heading_at_or_above(tokens, i, 4)
+            section_tokens = tokens[i:persona_section_end]
+            persona_props = _parse_persona_section(section_tokens)
+            for k, v in persona_props.items():
+                hoisted_props[k] = v
+            # Advance past the entire persona section (skip to next H4 or end).
+            i = persona_section_end
+            in_persona_section = False
             continue
 
         if lvl == 6:
@@ -1515,7 +1550,7 @@ def _parse_entity_children(
             i = next_h6
             continue
 
-        if lvl == 5 and not in_triggers_section:
+        if lvl == 5 and not in_triggers_section and not in_persona_section:
             sub_name = _inline_text_after(tokens, i)
             body_start = i + 3
             body_end = _next_heading_at_or_above(tokens, body_start, 5)
@@ -1537,7 +1572,54 @@ def _parse_entity_children(
 
         i += 1
 
-    return triggers, subentities
+    return triggers, subentities, hoisted_props
+
+
+def _parse_persona_section(tokens: list[Token]) -> dict[str, Any]:
+    """Parse the bullet list in a ``#### Persona`` H4 subsection.
+
+    Recognised bullet forms:
+    - ``- persona: <text>``  → ``{"persona": "<text>"}``
+    - ``- goal: <text>``     → ``{"goals": ["<text>", ...]}``  (aggregated in order)
+
+    Unknown keys are silently skipped (forward-compatible).  Repeated ``persona:``
+    lines let the last declaration win (consistent with the general property
+    last-wins rule).  ``goal:`` lines always accumulate into the ordered list.
+    """
+    result: dict[str, Any] = {}
+    goals: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.type == "bullet_list_open" and tok.level == 0:
+            for item_tokens in _list_items(tokens, i):
+                for t in item_tokens:
+                    if t.type == "inline":
+                        m = _KV_RE.match(t.content.strip())
+                        if m:
+                            key = m.group("key").strip()
+                            val = m.group("value").strip()
+                            if key == "persona":
+                                result["persona"] = val
+                            elif key == "goal":
+                                goals.append(val)
+                        break
+            # Skip past the bullet list close
+            depth = 0
+            while i < len(tokens):
+                if tokens[i].type == "bullet_list_open":
+                    depth += 1
+                elif tokens[i].type == "bullet_list_close":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+            continue
+        i += 1
+    if goals:
+        result["goals"] = goals
+    return result
 
 
 def _parse_new_style_trigger(name_raw: str, tokens: list[Token]) -> Trigger:
@@ -1640,7 +1722,7 @@ def _parse_subentities(
     sub-entities. New code uses ``_parse_entity_children`` which also returns
     triggers.
     """
-    _, subentities = _parse_entity_children(tokens, parent_heading_level=3, kind_maps=kind_maps)
+    _, subentities, _ = _parse_entity_children(tokens, parent_heading_level=3, kind_maps=kind_maps)
     yield from subentities
 
 

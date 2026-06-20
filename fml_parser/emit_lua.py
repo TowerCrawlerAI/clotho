@@ -448,6 +448,28 @@ def emit_lua_graph(
         parts.extend(prose_lines)
         parts.append("")
 
+    # 4c. Persona `goals` list — a list property authored in a ``#### Persona``
+    # H4 subsection.  These cannot be inlined into create_node (which takes
+    # only scalars), so they emit as engine.set_prop with a Lua table.  The
+    # engine (wyrd #135) supports TG_VALUE_LIST on node properties; the emitter
+    # pre-wires it here so floors authoring #### Persona are ready when the
+    # wyrd binding surface lands.  Only `goals` is treated this way — other
+    # list-typed content properties (e.g. `connects`, `aliases`) have their own
+    # dedicated emission paths and must not be re-emitted here.
+    goals_lines: list[str] = []
+    for ent in world_entities:
+        goals_val = ent.properties.get("goals")
+        if isinstance(goals_val, list) and goals_val:
+            if all(isinstance(item, str) for item in goals_val):
+                items_lua = ", ".join(_lua_string(item) for item in goals_val)
+                goals_lines.append(
+                    f'engine.set_prop(n_{ent.id}, "goals", {{ {items_lua} }})'
+                )
+    if goals_lines:
+        parts.append("-- NPC goals (set_prop with list value; wyrd #135)")
+        parts.extend(goals_lines)
+        parts.append("")
+
     # 5. Relations (after all nodes exist) ------------------------------------
     world_ids: set[str] = {e.id for e in world_entities}
     relation_lines: list[str] = []
