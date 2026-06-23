@@ -496,6 +496,18 @@ def emit_lua_graph(
                     f'engine.relate("in", n_{ent.id}, n_{container})'
                 )
 
+    # Room entrances (#119): the cell an arriving actor lands at, so a spawned
+    # player appears at an authored spot rather than the container origin (where
+    # an unpositioned NPC/boss rests). An authored `entrance: [x,y,z]` wins; the
+    # south-centre fallback for mapped rooms is injected by strip_map_keys (which
+    # still has the map dims), so here we just emit whatever `entrance` resolved.
+    entrance_lines: list[str] = []
+    for ent in world_entities:
+        entrance = _parse_cell(ent.properties.get("entrance"), ent.id, "entrance")
+        if entrance is not None:
+            ex, ey, ez = entrance
+            entrance_lines.append(f"engine.set_entrance(n_{ent.id}, {ex}, {ey}, {ez})")
+
     # Exits → 'map' edges. The relation is symmetric, so emit each unordered
     # room pair once and skip self-loops (avoids duplicate/degenerate edges from
     # rooms that declare reciprocal or self exits).
@@ -531,6 +543,18 @@ def emit_lua_graph(
                     exit_prop_lines.append(
                         f'engine.set_prop(n_{ent.id}, "exit_door_{canon}", n_{door_slug})'
                     )
+                # Per-exit entry override (#119): leaving this room via `canon`
+                # lands the mover at an authored cell in the destination (the
+                # object-form exit `<dir>: {room, enter_at: [x,y,z]}`), overriding
+                # the destination's default entrance.
+                enter_cell = _parse_cell(
+                    _exit_enter_at(dest), f"{ent.id} exit {canon}", "enter_at"
+                )
+                if enter_cell is not None:
+                    ex, ey, ez = enter_cell
+                    exit_prop_lines.append(
+                        f'engine.set_exit_entry(n_{ent.id}, "{canon}", {ex}, {ey}, {ez})'
+                    )
             # Undirected `map` edge (senses + adjacency + "go <room name>"),
             # one per unordered pair, no self-loops.
             if dest_slug == ent.id:
@@ -546,6 +570,10 @@ def emit_lua_graph(
     if relation_lines:
         parts.append("-- Relations")
         parts.extend(relation_lines)
+        parts.append("")
+    if entrance_lines:
+        parts.append("-- Room entrances (spawn/arrival cells)")
+        parts.extend(entrance_lines)
         parts.append("")
     if exit_prop_lines:
         parts.append("-- Directional exits (exit_<dir> = destination node)")
@@ -837,6 +865,13 @@ def _exit_door_slug(dest: Any) -> str | None:
     return None
 
 
+def _exit_enter_at(dest: Any) -> Any | None:
+    """The per-exit `enter_at: [x,y,z]` of an object-form exit, else None."""
+    if isinstance(dest, dict):
+        return dest.get("enter_at")
+    return None
+
+
 # §22 (Phase 5) — spatial authoring: integer cell positions + occupancy.
 #
 # Per-axis cell range mirrors the engine's packable range (wyrd src/cell.h:
@@ -864,16 +899,17 @@ def _coord_in_range(v: int, ent_id: str, what: str) -> int:
     return v
 
 
-def _parse_cell(value: Any, ent_id: str) -> tuple[int, int, int] | None:
-    """Parse a `position: [x, y, z]` value into a validated integer triple, or
-    None if no position was authored. Raises FmlSyntaxError on a malformed one."""
+def _parse_cell(value: Any, ent_id: str, what: str = "position") -> tuple[int, int, int] | None:
+    """Parse a `[x, y, z]` cell value into a validated integer triple, or None if
+    none was authored. Raises FmlSyntaxError on a malformed one. `what` names the
+    authoring key for the error message (position / entrance / enter_at)."""
     if value is None:
         return None
     if not (isinstance(value, list) and len(value) == 3 and all(_is_int(v) for v in value)):
         raise FmlSyntaxError(
-            f"position on {ent_id!r} must be three integers [x, y, z]; got {value!r}"
+            f"{what} on {ent_id!r} must be three integers [x, y, z]; got {value!r}"
         )
-    return tuple(_coord_in_range(int(v), ent_id, "position") for v in value)  # type: ignore[return-value]
+    return tuple(_coord_in_range(int(v), ent_id, what) for v in value)  # type: ignore[return-value]
 
 
 def _parse_blocked_cells(value: Any, ent_id: str) -> list[tuple[int, int, int, int]]:

@@ -40,8 +40,21 @@ The floor emitter lowers two optional spatial properties (engine reqs #104/#108)
   `engine.set_blocked(n_<id>, x, y, z[, flags])`. `kind` ∈ `wall` (default; move+sight),
   `move`, `sight`. Both validate at lower time (FmlSyntaxError on malformed).
 
+Entrances (engine req #119) — where an arriving actor lands (else the container origin):
+
+- `entrance: [x, y, z]` on a room → `engine.set_entrance(n_<room>, x, y, z)` (its default
+  spawn cell). A mapped room with no authored `entrance` gets a **south-centre** default
+  (`x = w//2, y = h-1`) injected by `strip_map_keys` (which still has the `map:` dims) and
+  lowered the same way.
+- per-exit `enter_at: [x,y,z]` in the object-form exit `<dir>: {room, enter_at}` →
+  `engine.set_exit_entry(n_<src>, "<dir>", x, y, z)` (overrides the destination's default
+  when leaving via `<dir>`).
+- `map:` gains optional `offset: [px, px]` and `scale: N` → the room's `art` record in
+  `map.json` (`{src, fit, offset, scale}`); presentation-only, never reaches the LFR.
+
 Additive: floors without these keys lower byte-identically. See `emit_lua.py`
-`_parse_cell` / `_parse_blocked_cells`; spec in `../wiki/design/FML.md` §8.3.
+`_parse_cell` / `_parse_blocked_cells` / `_exit_enter_at`, `emit_map.py`
+`_inject_default_entrance`; spec in `../wiki/design/FML.md` §8.3.
 
 ## Output contracts (do not drift)
 
