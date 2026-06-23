@@ -1178,3 +1178,19 @@ def test_art_rejects_malformed_offset_scale():
     art = _emit_map_for(_make_floor(room, start="hall"))["rooms"]["hall"]["art"]
     assert "offset" not in art
     assert "scale" not in art
+
+
+def test_art_fit_is_authorable_and_validated():
+    # fit comes from `map: fit:`, defaulting to cover; unknown → cover.
+    def art_for(fit):
+        room = FMLEntity(
+            id="hall", name="Hall", kind="room", kind_chain=["room"],
+            properties={"map": {"width": 6, "height": 4, "image": "https://cdn/h.png",
+                                **({} if fit is None else {"fit": fit})}},
+        )
+        return _emit_map_for(_make_floor(room, start="hall"))["rooms"]["hall"]["art"]
+    assert art_for(None)["fit"] == "cover"
+    assert art_for("stretch")["fit"] == "stretch"
+    assert art_for("tile")["fit"] == "tile"
+    assert art_for("contain")["fit"] == "contain"
+    assert art_for("bogus")["fit"] == "cover"   # unknown → cover
