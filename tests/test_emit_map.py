@@ -1139,3 +1139,42 @@ def test_m7_route_path_meets_facing_walls():
     vpath = _route_path(b, a, "north")
     assert vpath[0] == [b["x"] + b["w"] // 2, b["y"]]
     assert vpath[-1] == [a["x"] + a["w"] // 2, a["y"] + a["h"]]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Art offset/scale (#119 art controls)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_art_offset_and_scale_flow_into_map_json():
+    room = FMLEntity(
+        id="hall", name="Hall", kind="room", kind_chain=["room"],
+        properties={"map": {"width": 6, "height": 4, "image": "https://cdn/hall.png",
+                            "offset": [12, -8], "scale": 1.5}},
+    )
+    art = _emit_map_for(_make_floor(room, start="hall"))["rooms"]["hall"]["art"]
+    assert art["src"] == "https://cdn/hall.png"
+    assert art["fit"] == "cover"
+    assert art["offset"] == [12, -8]
+    assert art["scale"] == 1.5
+
+
+def test_art_without_offset_scale_is_unchanged():
+    room = FMLEntity(
+        id="hall", name="Hall", kind="room", kind_chain=["room"],
+        properties={"map": {"width": 6, "height": 4, "image": "https://cdn/hall.png"}},
+    )
+    art = _emit_map_for(_make_floor(room, start="hall"))["rooms"]["hall"]["art"]
+    assert art == {"src": "https://cdn/hall.png", "fit": "cover"}
+
+
+def test_art_rejects_malformed_offset_scale():
+    # A 3-element offset and a non-positive scale are ignored (no crash, keys absent).
+    room = FMLEntity(
+        id="hall", name="Hall", kind="room", kind_chain=["room"],
+        properties={"map": {"width": 6, "height": 4, "image": "https://cdn/hall.png",
+                            "offset": [1, 2, 3], "scale": 0}},
+    )
+    art = _emit_map_for(_make_floor(room, start="hall"))["rooms"]["hall"]["art"]
+    assert "offset" not in art
+    assert "scale" not in art

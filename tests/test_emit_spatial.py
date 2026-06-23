@@ -181,3 +181,61 @@ def test_position_and_blocked_are_not_emitted_as_scalar_props():
     out = emit_lua_graph(make_floor([room, goblin], start_location="arena"))
     assert "position" not in out
     assert 'set_prop(n_arena, "blocked"' not in out
+
+
+# ─── entrance cells (#119) ───────────────────────────────────────────────────
+
+
+def test_authored_entrance_lowers_to_set_entrance():
+    room = make_entity("hall", "Hall", "room", properties={"entrance": [3, 7, 0]})
+    out = emit_lua_graph(make_floor([room], start_location="hall"))
+    assert "engine.set_entrance(n_hall, 3, 7, 0)" in out
+
+
+def test_entrance_south_center_fallback_for_mapped_room():
+    # A mapped room with no authored entrance gets a south-centre default,
+    # injected by strip_map_keys (which has the map dims) before lowering.
+    from fml_parser.emit_map import strip_map_keys
+    room = make_entity("hall", "Hall", "room",
+                       properties={"map": {"width": 10, "height": 8, "image": "h.png"}})
+    floor = make_floor([room], start_location="hall")
+    strip_map_keys(floor)               # injects entrance = [10//2, 8-1, 0]
+    out = emit_lua_graph(floor)
+    assert "engine.set_entrance(n_hall, 5, 7, 0)" in out
+
+
+def test_authored_entrance_beats_south_center_fallback():
+    from fml_parser.emit_map import strip_map_keys
+    room = make_entity("hall", "Hall", "room",
+                       properties={"entrance": [1, 1, 0],
+                                   "map": {"width": 10, "height": 8, "image": "h.png"}})
+    floor = make_floor([room], start_location="hall")
+    strip_map_keys(floor)
+    out = emit_lua_graph(floor)
+    assert "engine.set_entrance(n_hall, 1, 1, 0)" in out
+    assert "engine.set_entrance(n_hall, 5, 7, 0)" not in out
+
+
+def test_unmapped_room_gets_no_entrance():
+    from fml_parser.emit_map import strip_map_keys
+    room = make_entity("void", "Void", "room")   # no map, no entrance
+    floor = make_floor([room], start_location="void")
+    strip_map_keys(floor)
+    out = emit_lua_graph(floor)
+    assert "set_entrance(n_void" not in out
+
+
+def test_per_exit_enter_at_lowers_to_set_exit_entry():
+    hall = make_entity("hall", "Hall", "room")
+    entry = make_entity("entry", "Entry", "room",
+                        properties={"exits": {"north": {"room": "hall", "enter_at": [2, 2, 0]}}})
+    out = emit_lua_graph(make_floor([entry, hall], start_location="entry"))
+    # The destination is still wired, and the per-exit override is emitted.
+    assert 'engine.set_prop(n_entry, "exit_north", n_hall)' in out
+    assert 'engine.set_exit_entry(n_entry, "north", 2, 2, 0)' in out
+
+
+def test_malformed_entrance_raises():
+    room = make_entity("hall", "Hall", "room", properties={"entrance": [1, 2]})
+    with pytest.raises(FmlSyntaxError):
+        emit_lua_graph(make_floor([room], start_location="hall"))

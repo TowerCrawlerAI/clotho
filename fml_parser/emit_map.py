@@ -104,9 +104,32 @@ def strip_map_keys(floor: Floor) -> None:
 
     # Per-entity keys (walk all entities including sub-entities).
     for entity in floor.all_entities():
+        # Entrance south-centre fallback (#119): a mapped room with no authored
+        # `entrance` gets one at the south-edge centre (x = w//2, y = h-1) so a
+        # spawned player enters from the "front" of the battlemap instead of the
+        # origin (where an unpositioned boss sits). Injected as a top-level
+        # `entrance` property HERE — the last point map dims exist before the Lua
+        # emitter runs (which then lowers it to engine.set_entrance). Authored
+        # entrances are left untouched.
+        _inject_default_entrance(entity)
         entity.properties.pop("map", None)
         entity.properties.pop("token", None)
         entity.properties.pop("render", None)
+
+
+def _inject_default_entrance(entity: FMLEntity) -> None:
+    """Give a mapped room a south-centre `entrance` when none is authored."""
+    if entity.properties.get("entrance") is not None:
+        return
+    if entity.kind != "room" and "room" not in entity.kind_chain:
+        return
+    m = entity.properties.get("map")
+    if not isinstance(m, dict):
+        return
+    w, h = m.get("width"), m.get("height")
+    if (isinstance(w, int) and not isinstance(w, bool) and w > 0
+            and isinstance(h, int) and not isinstance(h, bool) and h > 0):
+        entity.properties["entrance"] = [w // 2, h - 1, 0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -872,11 +895,21 @@ def emit_map(
                 w, h = room_sizes[rid]
                 rect = {"x": 0, "y": 0, "w": w, "h": h}
 
-        # Art from per-room map overrides.
+        # Art from per-room map overrides. Optional `offset: [px, px]` and
+        # `scale: N` let an author nudge/zoom the background image within the
+        # room rect (the client applies them atop its fit; the clip stays the
+        # room rect). Absent keys keep the prior {src, fit} shape byte-identical.
         art: dict[str, Any] | None = None
         image_url = ovr.get("image")
         if image_url:
             art = {"src": str(image_url), "fit": "cover"}
+            offset = ovr.get("offset")
+            if (isinstance(offset, list) and len(offset) == 2
+                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in offset)):
+                art["offset"] = [offset[0], offset[1]]
+            scale = ovr.get("scale")
+            if isinstance(scale, (int, float)) and not isinstance(scale, bool) and scale > 0:
+                art["scale"] = scale
 
         # Palette.
         palette = str(ovr.get("palette", floor_palette))
