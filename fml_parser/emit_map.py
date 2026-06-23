@@ -913,7 +913,13 @@ def emit_map(
         art: dict[str, Any] | None = None
         image_url = ovr.get("image")
         if image_url:
-            art = {"src": str(image_url), "fit": "cover"}
+            # `fit` decouples the background from the cell grid: cover (default,
+            # fill+crop), contain (letterbox), tile (repeat), stretch (fill the
+            # rect, ignoring aspect). Unknown values fall back to cover.
+            fit = str(ovr.get("fit", "cover")).lower()
+            if fit not in ("cover", "contain", "tile", "stretch"):
+                fit = "cover"
+            art = {"src": str(image_url), "fit": fit}
             offset = ovr.get("offset")
             if (isinstance(offset, list) and len(offset) == 2
                     and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in offset)):
