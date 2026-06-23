@@ -199,9 +199,11 @@ def test_entrance_south_center_fallback_for_mapped_room():
     room = make_entity("hall", "Hall", "room",
                        properties={"map": {"width": 10, "height": 8, "image": "h.png"}})
     floor = make_floor([room], start_location="hall")
-    strip_map_keys(floor)               # injects entrance = [10//2, 8-1, 0]
+    strip_map_keys(floor)               # injects entrance = [0, 1, 0] (one cell south)
     out = emit_lua_graph(floor)
-    assert "engine.set_entrance(n_hall, 5, 7, 0)" in out
+    # Centre-origin, conservative one-cell-south default (on-map for any rect size,
+    # since the render rect does not track the map image dimensions).
+    assert "engine.set_entrance(n_hall, 0, 1, 0)" in out
 
 
 def test_authored_entrance_beats_south_center_fallback():
@@ -213,7 +215,7 @@ def test_authored_entrance_beats_south_center_fallback():
     strip_map_keys(floor)
     out = emit_lua_graph(floor)
     assert "engine.set_entrance(n_hall, 1, 1, 0)" in out
-    assert "engine.set_entrance(n_hall, 5, 7, 0)" not in out
+    assert "engine.set_entrance(n_hall, 0, 1, 0)" not in out
 
 
 def test_unmapped_room_gets_no_entrance():

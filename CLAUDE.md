@@ -43,9 +43,13 @@ The floor emitter lowers two optional spatial properties (engine reqs #104/#108)
 Entrances (engine req #119) — where an arriving actor lands (else the container origin):
 
 - `entrance: [x, y, z]` on a room → `engine.set_entrance(n_<room>, x, y, z)` (its default
-  spawn cell). A mapped room with no authored `entrance` gets a **south-centre** default
-  (`x = w//2, y = h-1`) injected by `strip_map_keys` (which still has the `map:` dims) and
-  lowered the same way.
+  spawn cell). A mapped room with no authored `entrance` gets a conservative default
+  `(0, 1, 0)` (one cell south of centre) injected by `strip_map_keys`. Cells are
+  **centre-origin** (cell (0,0,0) = room centre, +y = south, per the client's
+  `_render_pos`). The default is deliberately small because a room's render rect is
+  content-sized and does NOT track the `map:` image dimensions, so an offset derived from
+  map width/height can fall off the rect. Authors set `entrance:` explicitly for a precise
+  spawn cell (e.g. the far south edge of a large pinned battlemap).
 - per-exit `enter_at: [x,y,z]` in the object-form exit `<dir>: {room, enter_at}` →
   `engine.set_exit_entry(n_<src>, "<dir>", x, y, z)` (overrides the destination's default
   when leaving via `<dir>`).

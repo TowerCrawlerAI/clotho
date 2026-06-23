@@ -118,7 +118,18 @@ def strip_map_keys(floor: Floor) -> None:
 
 
 def _inject_default_entrance(entity: FMLEntity) -> None:
-    """Give a mapped room a south-centre `entrance` when none is authored."""
+    """Give a mapped room a default `entrance` (just south of centre) when none
+    is authored — so a spawned/arriving actor lands one cell off the room centre
+    rather than stacked on whatever unpositioned content sits there.
+
+    Engine cells are CENTRE-ORIGIN: cell (0,0,0) is the room's centre and +y is
+    south (the client renders cell→pixels as room-centre + cell, see Loom
+    TableState._render_pos). The default is a conservative ONE cell south —
+    (0, 1, 0) — which is on-map for ANY room render size (rooms render at a
+    content-sized rect that does NOT track the `map:` image dimensions, so a
+    larger offset derived from map width/height can fall off the rect). Authors
+    wanting a specific spawn cell set `entrance:` explicitly (e.g. the far south
+    edge of a large pinned battlemap)."""
     if entity.properties.get("entrance") is not None:
         return
     if entity.kind != "room" and "room" not in entity.kind_chain:
@@ -129,7 +140,7 @@ def _inject_default_entrance(entity: FMLEntity) -> None:
     w, h = m.get("width"), m.get("height")
     if (isinstance(w, int) and not isinstance(w, bool) and w > 0
             and isinstance(h, int) and not isinstance(h, bool) and h > 0):
-        entity.properties["entrance"] = [w // 2, h - 1, 0]
+        entity.properties["entrance"] = [0, 1, 0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
